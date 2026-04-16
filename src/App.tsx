@@ -1028,7 +1028,7 @@ export default function App() {
       {screen === 'login' && (
         <div className="fixed inset-0 bg-bg-deep flex justify-center items-center z-[200]">
           <div className="bg-bg-card p-[40px_30px] text-center border border-border-dark w-[400px]">
-            <h1 className="text-[32px] text-accent-gold mb-2 font-serif italic tracking-[2px] uppercase">FREE FIRE</h1>
+            <h1 className="text-[32px] text-accent-gold mb-2 font-serif italic tracking-[2px] uppercase">Grand Fire Pixel Games</h1>
             <div className="text-[10px] text-text-secondary uppercase tracking-[4px] mb-8">Aetheris Edition</div>
             
             <input 
@@ -1091,7 +1091,7 @@ export default function App() {
                 <Mail size={20} onClick={() => setActiveModal('MAIL')} className="cursor-pointer hover:text-white" />
               </div>
               <div className="font-serif text-[24px] italic text-white tracking-[2px] uppercase ml-4 drop-shadow-[0_0_5px_rgba(255,255,255,0.5)]">
-                FREE FIRE
+                Grand Fire Pixel Games
               </div>
             </div>
           </header>
@@ -1115,7 +1115,7 @@ export default function App() {
             {/* Center Character Card */}
             <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
               <div className="w-[320px] h-[480px] bg-gradient-to-b from-black/60 to-black/90 border border-accent-gold/30 rounded-xl p-4 relative pointer-events-auto backdrop-blur-md shadow-[0_0_50px_rgba(212,175,55,0.15)] flex flex-col items-center justify-end overflow-hidden group transition-transform hover:scale-105">
-                <div className="absolute inset-0 bg-[url('https://picsum.photos/seed/freefire/300/450')] opacity-50 bg-cover bg-center mix-blend-overlay group-hover:opacity-70 transition-opacity"></div>
+                <div className="absolute inset-0 bg-[url('https://picsum.photos/seed/grandfire/300/450')] opacity-50 bg-cover bg-center mix-blend-overlay group-hover:opacity-70 transition-opacity"></div>
                 <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent"></div>
                 
                 <div className="relative z-10 w-full text-center">
@@ -1259,7 +1259,7 @@ export default function App() {
           {/* HUD Top - Header Style */}
           <header className="h-[70px] bg-bg-card border-b border-border-dark flex items-center justify-between px-10 z-[350] pointer-events-none shrink-0">
             <div className="font-serif text-[24px] italic text-accent-gold tracking-[2px] uppercase">
-              FREE FIRE
+              Grand Fire Pixel Games
             </div>
             <div className="flex gap-[30px]">
               <div className="flex flex-col items-end">
