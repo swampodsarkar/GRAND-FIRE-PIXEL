@@ -33,30 +33,63 @@ const WEAPONS: Record<string, Weapon> = {
   pistol: { name: "🔫 Glock", damage: 15, fireRate: 200, range: 250, ammo: 15, maxAmmo: 60, type: "pistol" }
 };
 
+// DENSE BUILDINGS (for 3000 x 3000 Map)
 const BUILDINGS = [
-  { x: 500, y: 500, w: 300, h: 200 },
-  { x: 1200, y: 800, w: 250, h: 250 },
-  { x: 2000, y: 600, w: 400, h: 150 },
-  { x: 800, y: 1500, w: 200, h: 300 },
-  { x: 1600, y: 1800, w: 350, h: 250 },
-  { x: 2200, y: 2200, w: 300, h: 300 },
-  { x: 400, y: 2400, w: 250, h: 200 },
-  { x: 1400, y: 1200, w: 150, h: 150 },
-  { x: 2600, y: 400, w: 200, h: 200 },
-  { x: 300, y: 1000, w: 150, h: 150 },
+  // AERODROME (Top Left Town)
+  { x: 300, y: 300, w: 200, h: 100 }, { x: 550, y: 300, w: 150, h: 200 }, { x: 300, y: 450, w: 200, h: 150 },
+  { x: 750, y: 350, w: 120, h: 120 }, { x: 400, y: 650, w: 300, h: 100 },
+  
+  // FORGE (Top Right Town)
+  { x: 2200, y: 300, w: 250, h: 150 }, { x: 2500, y: 250, w: 150, h: 200 }, { x: 2200, y: 500, w: 200, h: 200 },
+  { x: 2450, y: 500, w: 150, h: 150 }, { x: 2650, y: 400, w: 200, h: 250 }, { x: 2100, y: 750, w: 350, h: 100 },
+  
+  // CATHEDRAL (Bottom Left Town)
+  { x: 300, y: 2300, w: 200, h: 200 }, { x: 550, y: 2300, w: 150, h: 100 }, { x: 300, y: 2550, w: 250, h: 150 },
+  { x: 600, y: 2450, w: 200, h: 200 }, { x: 350, y: 2750, w: 150, h: 150 },
+  
+  // ESTATE (Bottom Right Town)
+  { x: 2300, y: 2300, w: 150, h: 150 }, { x: 2500, y: 2300, w: 200, h: 100 }, { x: 2300, y: 2500, w: 300, h: 200 },
+  { x: 2650, y: 2450, w: 150, h: 250 }, { x: 2200, y: 2750, w: 200, h: 150 },
+
+  // CENTRAL PEAK (Middle High-Density Area)
+  { x: 1300, y: 1300, w: 200, h: 200 }, { x: 1550, y: 1300, w: 150, h: 250 }, { x: 1300, y: 1550, w: 300, h: 150 },
+  { x: 1650, y: 1600, w: 200, h: 200 }, { x: 1400, y: 1750, w: 150, h: 150 }, { x: 1200, y: 1400, w: 100, h: 100 },
+  
+  // OUTSKIRT WAREHOUSES
+  { x: 1200, y: 600, w: 200, h: 150 }, { x: 1600, y: 600, w: 200, h: 150 },
+  { x: 1200, y: 2200, w: 200, h: 150 }, { x: 1600, y: 2200, w: 200, h: 150 },
+  { x: 600, y: 1400, w: 150, h: 200 }, { x: 2200, y: 1400, w: 150, h: 200 },
 ];
 
 const ROADS = [
-  { x: 0, y: 1450, w: 3000, h: 100 }, // Horizontal main road
-  { x: 1450, y: 0, w: 100, h: 3000 }, // Vertical main road
+  // Main Highways
+  { x: 0, y: 1450, w: 3000, h: 100 }, // Horizontal main
+  { x: 1450, y: 0, w: 100, h: 3000 }, // Vertical main
+  // Aerodrome to Forge
+  { x: 400, y: 550, w: 2000, h: 60 }, 
+  // Cathedral to Estate
+  { x: 400, y: 2400, w: 2000, h: 60 },
+  // Vertical Connecting
+  { x: 600, y: 600, w: 60, h: 1800 },
+  { x: 2350, y: 600, w: 60, h: 1800 },
 ];
 
 const TREES = [
-  { x: 300, y: 300 }, { x: 700, y: 400 }, { x: 1000, y: 200 },
-  { x: 1800, y: 300 }, { x: 2500, y: 800 }, { x: 2800, y: 1200 },
-  { x: 200, y: 1800 }, { x: 600, y: 2200 }, { x: 1000, y: 2600 },
-  { x: 1800, y: 2500 }, { x: 2400, y: 2800 }, { x: 2800, y: 2200 },
+  // Forests scattered randomly between towns
+  { x: 150, y: 150 }, { x: 250, y: 180 }, { x: 180, y: 250 }, { x: 900, y: 200 }, { x: 1000, y: 150 },
+  { x: 1100, y: 250 }, { x: 1800, y: 200 }, { x: 1900, y: 300 }, { x: 2800, y: 150 }, { x: 2900, y: 250 },
+  { x: 200, y: 800 }, { x: 300, y: 900 }, { x: 150, y: 1000 }, { x: 900, y: 800 }, { x: 1050, y: 900 },
+  { x: 1100, y: 1100 }, { x: 1800, y: 900 }, { x: 1950, y: 1000 }, { x: 2800, y: 800 }, { x: 2900, y: 950 },
+  { x: 2850, y: 1100 }, { x: 250, y: 1200 }, { x: 100, y: 1300 }, { x: 800, y: 1200 }, { x: 900, y: 1350 },
+  { x: 2000, y: 1200 }, { x: 2100, y: 1300 }, { x: 2800, y: 1250 }, { x: 2900, y: 1350 }, { x: 150, y: 1800 },
+  { x: 250, y: 1900 }, { x: 900, y: 1800 }, { x: 1050, y: 1900 }, { x: 1100, y: 2100 }, { x: 1800, y: 1950 },
+  { x: 1950, y: 1850 }, { x: 2800, y: 1800 }, { x: 2900, y: 1900 }, { x: 2850, y: 2050 }, { x: 150, y: 2800 },
+  { x: 250, y: 2900 }, { x: 180, y: 2750 }, { x: 900, y: 2850 }, { x: 1000, y: 2900 }, { x: 1100, y: 2750 },
+  { x: 1800, y: 2800 }, { x: 1900, y: 2900 }, { x: 2800, y: 2850 }, { x: 2900, y: 2750 }, { x: 1200, y: 1000 },
+  { x: 1300, y: 950 }, { x: 1650, y: 1050 }, { x: 1250, y: 1950 }, { x: 1700, y: 1900 }, { x: 1500, y: 1100 },
+  { x: 1550, y: 1950 }, { x: 1000, y: 1500 }, { x: 2000, y: 1550 },
 ];
+
 
 interface Player {
   id: string;
@@ -167,7 +200,7 @@ export default function App() {
     gameOver: false,
     place: 0,
     playerPos: { x: 1500, y: 1500, angle: 0 },
-    safeZone: { x: 1500, y: 1500, radius: 800 },
+    safeZone: { x: 1500, y: 1500, radius: 1500 },
   });
 
   // --- Refs ---
@@ -188,7 +221,7 @@ export default function App() {
     vehicles: [],
     airdrops: [],
     lootItems: [],
-    safeZone: { x: 1500, y: 1500, radius: 800, shrinkTimer: 60, nextRadius: 600 },
+    safeZone: { x: 1500, y: 1500, radius: 1500, shrinkTimer: 60, nextRadius: 900 },
     zoneDamage: 5,
     keys: { w: false, s: false, a: false, d: false, space: false, shift: false },
     mouse: { x: 0, y: 0 },
@@ -1755,10 +1788,10 @@ export default function App() {
                 )}
               </div>
 
-              {/* Map Container - Smallest for mobile to avoid scroll */}
-              <div className="relative flex flex-col items-center group shrink-0">
+              {/* Map Container - Full size / larger for better selection */}
+              <div className="relative flex flex-col items-center group shrink-0 w-full max-w-[400px]">
                 <div 
-                  className="w-[130px] h-[130px] sm:w-[280px] sm:h-[280px] bg-[#1e3d2b] border-[3px] border-accent-gold/40 relative cursor-crosshair overflow-hidden rounded-xl shadow-[0_10px_40px_rgba(0,0,0,0.8)] transition-all"
+                  className="w-[90vw] h-[90vw] max-w-[400px] max-h-[400px] bg-[#1e3d2b] border-[3px] border-accent-gold/40 relative cursor-crosshair overflow-hidden rounded-xl shadow-[0_10px_40px_rgba(0,0,0,0.8)] transition-all"
                   onClick={handleMapClick}
                 >
                   <svg width="400" height="400" viewBox={`0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`} className="absolute inset-0 pointer-events-none">
@@ -1784,9 +1817,9 @@ export default function App() {
 
                     {/* Highly Stylized Landmark Labels (Zone specific) */}
                     <g opacity="0.2">
-                      <text x="700" y="700" fill="white" fontSize="140" fontWeight="900" textAnchor="middle" style={{ fontStyle: 'italic', letterSpacing: '4px' }}>AERODROME</text>
-                      <text x="2400" y="700" fill="white" fontSize="140" fontWeight="900" textAnchor="middle" style={{ fontStyle: 'italic', letterSpacing: '4px' }}>FORGE</text>
-                      <text x="700" y="2400" fill="white" fontSize="140" fontWeight="900" textAnchor="middle" style={{ fontStyle: 'italic', letterSpacing: '4px' }}>CATHEDRAL</text>
+                      <text x="600" y="600" fill="white" fontSize="140" fontWeight="900" textAnchor="middle" style={{ fontStyle: 'italic', letterSpacing: '4px' }}>AERODROME</text>
+                      <text x="2400" y="600" fill="white" fontSize="140" fontWeight="900" textAnchor="middle" style={{ fontStyle: 'italic', letterSpacing: '4px' }}>FORGE</text>
+                      <text x="600" y="2400" fill="white" fontSize="140" fontWeight="900" textAnchor="middle" style={{ fontStyle: 'italic', letterSpacing: '4px' }}>CATHEDRAL</text>
                       <text x="2400" y="2400" fill="white" fontSize="140" fontWeight="900" textAnchor="middle" style={{ fontStyle: 'italic', letterSpacing: '4px' }}>ESTATE</text>
                       <text x="1500" y="1500" fill="white" fontSize="180" fontWeight="900" textAnchor="middle" style={{ fontStyle: 'italic', letterSpacing: '8px' }}>CENTRAL PEAK</text>
                     </g>
@@ -1835,23 +1868,47 @@ export default function App() {
             className="block w-full h-full"
           />
 
-          {/* MiniMap Overlay */}
-          <div className="absolute top-4 left-4 w-[90px] h-[90px] sm:w-[130px] sm:h-[130px] bg-black/70 border-2 border-white/10 rounded-lg overflow-hidden backdrop-blur-md z-[350] shadow-2xl">
+          {/* MiniMap Overlay - Solid Non-Transparent background */}
+          <div className="absolute top-4 left-4 w-[90px] h-[90px] sm:w-[130px] sm:h-[130px] bg-[#1a3626] border-2 border-accent-gold rounded-lg overflow-hidden z-[350] shadow-2xl">
             <div className="relative w-full h-full">
               <svg 
                 viewBox={`0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`} 
                 className="w-full h-full transition-transform duration-100 ease-out"
                 style={{
-                  transform: `scale(5) translate(${-(hud.playerPos.x/MAP_WIDTH)*100 + 10}%, ${-(hud.playerPos.y/MAP_HEIGHT)*100 + 10}%)`
+                  transform: `scale(4) translate(${-(hud.playerPos.x/MAP_WIDTH)*100 + 12.5}%, ${-(hud.playerPos.y/MAP_HEIGHT)*100 + 12.5}%)`
                 }}
               >
                 <rect x="0" y="0" width={MAP_WIDTH} height={MAP_HEIGHT} fill="#1e3d2b" />
+                <defs>
+                  <radialGradient id="miniLandGrad" cx="50%" cy="50%" r="50%">
+                    <stop offset="0%" stopColor="#254a34" />
+                    <stop offset="100%" stopColor="#1e3d2b" />
+                  </radialGradient>
+                </defs>
+                <rect x="0" y="0" width={MAP_WIDTH} height={MAP_HEIGHT} fill="url(#miniLandGrad)" />
+
                 {ROADS.map((r, i) => (
-                  <rect key={`mini-road-${i}`} x={r.x} y={r.y} width={r.w} height={r.h} fill="#2a2a2e" />
+                  <rect key={`mini-road-${i}`} x={r.x} y={r.y} width={r.w} height={r.h} fill="#2a2a2e" opacity="0.9" />
                 ))}
                 {BUILDINGS.map((b, i) => (
-                  <rect key={`mini-bldg-${i}`} x={b.x} y={b.y} width={b.w} height={b.h} fill="#151517" />
+                  <rect key={`mini-bldg-${i}`} x={b.x} y={b.y} width={b.w} height={b.h} fill="#151517" stroke="#3a3a3e" strokeWidth="3" />
                 ))}
+                {TREES.map((t, i) => (
+                  <circle key={`mini-tree-${i}`} cx={t.x} cy={t.y} r="30" fill="#0D2B1D" stroke="#153625" strokeWidth="2" />
+                ))}
+
+                {/* Highly Stylized Landmark Labels (Zone specific) */}
+                <g opacity="0.4">
+                  <text x="600" y="600" fill="white" fontSize="140" fontWeight="900" textAnchor="middle" style={{ fontStyle: 'italic', letterSpacing: '4px' }}>AERODROME</text>
+                  <text x="2400" y="600" fill="white" fontSize="140" fontWeight="900" textAnchor="middle" style={{ fontStyle: 'italic', letterSpacing: '4px' }}>FORGE</text>
+                  <text x="600" y="2400" fill="white" fontSize="140" fontWeight="900" textAnchor="middle" style={{ fontStyle: 'italic', letterSpacing: '4px' }}>CATHEDRAL</text>
+                  <text x="2400" y="2400" fill="white" fontSize="140" fontWeight="900" textAnchor="middle" style={{ fontStyle: 'italic', letterSpacing: '4px' }}>ESTATE</text>
+                  <text x="1500" y="1500" fill="white" fontSize="180" fontWeight="900" textAnchor="middle" style={{ fontStyle: 'italic', letterSpacing: '8px' }}>CENTRAL PEAK</text>
+                </g>
+
+                {/* Grid lines for MiniMap */}
+                <path d={`M ${MAP_WIDTH/2} 0 V ${MAP_HEIGHT}`} stroke="white" strokeWidth="2" opacity="0.05" />
+                <path d={`M 0 ${MAP_HEIGHT/2} H ${MAP_WIDTH}`} stroke="white" strokeWidth="2" opacity="0.05" />
                 
                 {/* Safe Zone on MiniMap */}
                 {state.current.matchTime >= 60 && (
