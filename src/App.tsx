@@ -133,6 +133,8 @@ export default function App() {
   const [playerData, setPlayerData] = useState({ gold: 0, diamonds: 0, level: 1 });
   const [dropTimer, setDropTimer] = useState(10);
   const [activeModal, setActiveModal] = useState<string | null>(null);
+  const [matchmakingPlayers, setMatchmakingPlayers] = useState<string[]>([]);
+  const [killFeed, setKillFeed] = useState<{ id: number, killer: string, victim: string }[]>([]);
   
   // HUD State (Synced from GameState periodically to avoid massive re-renders)
   const [hud, setHud] = useState({
@@ -225,6 +227,21 @@ export default function App() {
   const startMatchmaking = () => {
     setScreen('matchmaking');
     setMatchTimer(30);
+    
+    // Join matchmaking queue
+    const matchRef = ref(db, 'matchmaking/' + playerName);
+    set(matchRef, { name: playerName, joinedAt: Date.now() });
+
+    // Listen for other players
+    const allMatchRef = ref(db, 'matchmaking');
+    onValue(allMatchRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const players = Object.values(snapshot.val()) as any[];
+        setMatchmakingPlayers(players.map(p => p.name));
+      } else {
+        setMatchmakingPlayers([]);
+      }
+    });
   };
 
   useEffect(() => {
@@ -266,6 +283,10 @@ export default function App() {
   const startGame = () => {
     setScreen('game');
     
+    // Clear matchmaking queue for this player
+    const matchRef = ref(db, 'matchmaking/' + playerName);
+    set(matchRef, null);
+
     // Initialize Player
     state.current.localPlayer = {
       id: "player",
@@ -292,21 +313,49 @@ export default function App() {
     state.current.zoneDamage = 5;
 
     // Generate Enemies
-    const enemyCount = mode === "solo" ? 9 : (mode === "duo" ? 8 : 7);
-    const botNames = ["Ranger", "Scout", "Sniper", "Medic", "Heavy", "Assault", "Recon", "Warrior", "Phantom"];
-    state.current.enemies = Array.from({ length: enemyCount }).map((_, i) => ({
-      id: `bot_${i}`,
-      name: botNames[i % botNames.length],
-      x: Math.random() * MAP_WIDTH,
-      y: Math.random() * MAP_HEIGHT,
-      hp: 200,
-      armor: Math.random() * 50,
-      angle: Math.random() * Math.PI * 2,
-      kills: 0,
-      weapon: Object.keys(WEAPONS)[Math.floor(Math.random() * 5)],
-      lastShoot: 0,
-      moveDir: { x: 0, y: 0 }
-    }));
+    const totalPlayers = 20;
+    const realPlayers = matchmakingPlayers.filter(name => name !== playerName);
+    const botNames = ["Ranger", "Scout", "Sniper", "Medic", "Heavy", "Assault", "Recon", "Warrior", "Phantom", "Ghost", "Shadow", "Hunter", "Viper", "Wolf", "Hawk", "Eagle", "Falcon", "Cobra", "Dragon", "Titan"];
+    
+    const enemies: Enemy[] = [];
+
+    // Add real players as "enemies" (simulated for now)
+    realPlayers.forEach((name, i) => {
+      enemies.push({
+        id: `player_${i}`,
+        name: name,
+        x: Math.random() * MAP_WIDTH,
+        y: Math.random() * MAP_HEIGHT,
+        hp: 200,
+        armor: 50,
+        angle: Math.random() * Math.PI * 2,
+        kills: 0,
+        weapon: Object.keys(WEAPONS)[Math.floor(Math.random() * 5)],
+        lastShoot: 0,
+        moveDir: { x: 0, y: 0 }
+      });
+    });
+
+    // Fill the rest with bots
+    const botsNeeded = Math.max(0, totalPlayers - realPlayers.length - 1); // -1 for local player
+    for (let i = 0; i < botsNeeded; i++) {
+      enemies.push({
+        id: `bot_${i}`,
+        name: botNames[i % botNames.length] + " (Bot)",
+        x: Math.random() * MAP_WIDTH,
+        y: Math.random() * MAP_HEIGHT,
+        hp: 200,
+        armor: Math.random() * 50,
+        angle: Math.random() * Math.PI * 2,
+        kills: 0,
+        weapon: Object.keys(WEAPONS)[Math.floor(Math.random() * 5)],
+        lastShoot: 0,
+        moveDir: { x: 0, y: 0 }
+      });
+    }
+
+    state.current.enemies = enemies;
+    setKillFeed([]);
 
     // Generate Vehicles & Loot
     state.current.vehicles = [
@@ -710,6 +759,10 @@ export default function App() {
           if (enemy.hp <= 0) {
             p.kills++;
             state.current.rankPoints += 15;
+            
+            // Add to kill feed
+            const newKill = { id: Date.now(), killer: p.name, victim: enemy.name };
+            setKillFeed(prev => [newKill, ...prev].slice(0, 5));
           }
           break;
         }
@@ -734,6 +787,12 @@ export default function App() {
         i--;
         if (p.hp <= 0) {
           p.isAlive = false;
+          
+          // Add to kill feed
+          const killer = state.current.enemies.find(e => e.id === b.ownerId);
+          const newKill = { id: Date.now(), killer: killer ? killer.name : "Enemy", victim: p.name };
+          setKillFeed(prev => [newKill, ...prev].slice(0, 5));
+          
           triggerGameOver();
         }
       }
@@ -859,67 +918,79 @@ export default function App() {
       ctx.fill();
     });
 
+    // Helper to draw a human character (top-down)
+    const drawHuman = (ctx: CanvasRenderingContext2D, x: number, y: number, angle: number, color: string, name: string, hp: number, isLocal: boolean) => {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(angle);
+
+      // Shoulders/Body
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 12, 18, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#000';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      // Head
+      ctx.fillStyle = '#FFDBAC'; // Skin tone
+      ctx.beginPath();
+      ctx.arc(0, 0, 8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Arms/Hands (Holding weapon position)
+      ctx.fillStyle = color;
+      // Left arm
+      ctx.beginPath();
+      ctx.arc(10, -12, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      // Right arm (extended for weapon)
+      ctx.beginPath();
+      ctx.arc(15, 8, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Weapon
+      ctx.fillStyle = '#333';
+      ctx.fillRect(8, 4, 25, 4);
+      ctx.strokeStyle = '#000';
+      ctx.strokeRect(8, 4, 25, 4);
+
+      ctx.restore();
+
+      // Name & HP Bar (Not rotated)
+      ctx.fillStyle = color;
+      ctx.font = isLocal ? 'bold 12px "Inter", sans-serif' : '10px "Inter", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(name, x, y - 35);
+
+      const barWidth = 40;
+      ctx.fillStyle = '#2A2A2D';
+      ctx.fillRect(x - barWidth / 2, y - 45, barWidth, 4);
+      ctx.fillStyle = color;
+      ctx.fillRect(x - barWidth / 2, y - 45, barWidth * (hp / 200), 4);
+    };
+
     // Enemies
     state.current.enemies.forEach(enemy => {
       const pos = worldToScreen(enemy.x, enemy.y);
-      ctx.beginPath();
-      ctx.arc(pos.x, pos.y, 20, 0, Math.PI * 2);
-      ctx.fillStyle = '#151517'; // bg-card
-      ctx.fill();
-      ctx.strokeStyle = '#99958F'; // text-secondary
-      ctx.lineWidth = 2;
-      ctx.stroke();
-      
-      ctx.beginPath();
-      ctx.moveTo(pos.x, pos.y);
-      ctx.lineTo(pos.x + Math.cos(enemy.angle) * 28, pos.y + Math.sin(enemy.angle) * 28);
-      ctx.strokeStyle = '#99958F';
-      ctx.lineWidth = 2;
-      ctx.stroke();
-      
-      ctx.fillStyle = '#99958F';
-      ctx.font = '10px "Helvetica Neue", Helvetica, sans-serif';
-      ctx.fillText(enemy.name, pos.x - 15, pos.y - 25);
-      
-      ctx.fillStyle = '#2A2A2D';
-      ctx.fillRect(pos.x - 20, pos.y - 32, 40, 4);
-      ctx.fillStyle = '#8E793E';
-      ctx.fillRect(pos.x - 20, pos.y - 32, 40 * (enemy.hp / 200), 4);
+      drawHuman(ctx, pos.x, pos.y, enemy.angle, '#99958F', enemy.name, enemy.hp, false);
     });
 
     // Player
     const p = state.current.localPlayer;
     if (p && p.isAlive) {
       const pos = worldToScreen(p.x, p.y);
-      ctx.beginPath();
-      ctx.arc(pos.x, pos.y, 20, 0, Math.PI * 2);
-      ctx.fillStyle = '#151517'; // bg-card
-      ctx.fill();
-      ctx.strokeStyle = '#D4AF37'; // accent-gold
-      ctx.lineWidth = 2;
-      ctx.stroke();
-      
-      ctx.beginPath();
-      ctx.moveTo(pos.x, pos.y);
-      ctx.lineTo(pos.x + Math.cos(p.angle) * 30, pos.y + Math.sin(p.angle) * 30);
-      ctx.strokeStyle = '#D4AF37';
-      ctx.lineWidth = 2;
-      ctx.stroke();
-      
-      ctx.fillStyle = '#D4AF37';
-      ctx.font = 'italic 12px Georgia, serif';
-      ctx.fillText(p.name, pos.x - 20, pos.y - 28);
-      
-      ctx.fillStyle = '#2A2A2D';
-      ctx.fillRect(pos.x - 25, pos.y - 38, 50, 4);
-      ctx.fillStyle = '#D4AF37';
-      ctx.fillRect(pos.x - 25, pos.y - 38, 50 * (p.hp / 200), 4);
+      drawHuman(ctx, pos.x, pos.y, p.angle, '#D4AF37', p.name, p.hp, true);
       
       if (p.shield) {
-        ctx.strokeStyle = '#E0DED7';
-        ctx.lineWidth = 1;
+        ctx.strokeStyle = 'rgba(224, 222, 215, 0.5)';
+        ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.arc(pos.x, pos.y, 28, 0, Math.PI * 2);
+        ctx.arc(pos.x, pos.y, 30, 0, Math.PI * 2);
         ctx.stroke();
       }
     }
@@ -1019,8 +1090,14 @@ export default function App() {
       if (zoneIntervalRef.current) clearInterval(zoneIntervalRef.current);
       if (airdropIntervalRef.current) clearInterval(airdropIntervalRef.current);
       if (hudUpdateIntervalRef.current) clearInterval(hudUpdateIntervalRef.current);
+      
+      // Clear matchmaking on exit
+      if (playerName) {
+        const matchRef = ref(db, 'matchmaking/' + playerName);
+        set(matchRef, null);
+      }
     };
-  }, []);
+  }, [playerName]);
 
   // --- Render ---
   return (
@@ -1218,7 +1295,20 @@ export default function App() {
           <div className="w-[80px] h-[80px] border-4 border-border-dark border-t-accent-gold rounded-full animate-spin mb-8"></div>
           <h2 className="text-[24px] text-accent-gold mb-2 font-serif italic uppercase tracking-[2px]">Matchmaking</h2>
           <div className="text-[12px] text-text-secondary uppercase tracking-[2px] mb-4">Searching for players...</div>
-          <div className="font-serif text-[48px] text-text-primary mb-8">00:{matchTimer < 10 ? `0${matchTimer}` : matchTimer}</div>
+          <div className="font-serif text-[48px] text-text-primary mb-4">00:{matchTimer < 10 ? `0${matchTimer}` : matchTimer}</div>
+          
+          <div className="bg-bg-card border border-border-dark p-4 rounded w-[300px]">
+            <div className="text-[10px] text-accent-gold uppercase mb-2 border-b border-white/10 pb-1">Players Found ({matchmakingPlayers.length})</div>
+            <div className="max-h-[150px] overflow-y-auto flex flex-col gap-1">
+              {matchmakingPlayers.map((name, i) => (
+                <div key={i} className="text-[12px] text-white/80 flex justify-between">
+                  <span>{name}</span>
+                  <span className="text-accent-gold text-[10px]">READY</span>
+                </div>
+              ))}
+              {matchmakingPlayers.length === 0 && <div className="text-[10px] text-white/40 italic">Waiting for players...</div>}
+            </div>
+          </div>
         </div>
       )}
 
@@ -1261,6 +1351,18 @@ export default function App() {
             <div className="font-serif text-[24px] italic text-accent-gold tracking-[2px] uppercase">
               Grand Fire Pixel Games
             </div>
+            
+            {/* Kill Feed */}
+            <div className="absolute top-[80px] right-10 flex flex-col gap-2 pointer-events-none">
+              {killFeed.map(k => (
+                <div key={k.id} className="bg-black/60 border-l-2 border-accent-gold px-4 py-1 flex items-center gap-3 animate-fade-in">
+                  <span className="text-accent-gold font-bold text-[12px]">{k.killer}</span>
+                  <div className="w-4 h-[1px] bg-white/30"></div>
+                  <span className="text-white text-[12px]">{k.victim}</span>
+                </div>
+              ))}
+            </div>
+
             <div className="flex gap-[30px]">
               <div className="flex flex-col items-end">
                 <span className="text-[10px] uppercase text-text-secondary tracking-[1px]">Health</span>
