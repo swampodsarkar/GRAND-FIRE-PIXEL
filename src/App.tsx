@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Settings, Mail, Battery, Wifi, MessageSquare, Users, Crosshair, User, Beaker } from 'lucide-react';
+import { Settings, Mail, Battery, Wifi, MessageSquare, Users, Crosshair, User, Beaker, Zap } from 'lucide-react';
 import { ref, set, onValue, get } from 'firebase/database';
 import { db } from './firebase';
 
@@ -25,11 +25,11 @@ interface Weapon {
 }
 
 const WEAPONS: Record<string, Weapon> = {
-  m4a1: { name: "🔫 M4A1", damage: 22, fireRate: 120, range: 400, ammo: 30, maxAmmo: 90, type: "assault" },
-  sniper: { name: "🎯 AWM", damage: 85, fireRate: 800, range: 800, ammo: 5, maxAmmo: 25, type: "sniper" },
-  shotgun: { name: "🔫 M1014", damage: 95, fireRate: 900, range: 150, ammo: 8, maxAmmo: 32, type: "shotgun" },
-  smg: { name: "🔫 UMP", damage: 18, fireRate: 90, range: 250, ammo: 35, maxAmmo: 140, type: "smg" },
-  pistol: { name: "🔫 Glock", damage: 15, fireRate: 200, range: 200, ammo: 15, maxAmmo: 60, type: "pistol" }
+  m4a1: { name: "🔫 M4A1", damage: 24, fireRate: 130, range: 550, ammo: 30, maxAmmo: 120, type: "assault" },
+  sniper: { name: "🎯 AWM", damage: 95, fireRate: 900, range: 1000, ammo: 5, maxAmmo: 25, type: "sniper" },
+  shotgun: { name: "🔫 M1014", damage: 110, fireRate: 1000, range: 180, ammo: 8, maxAmmo: 32, type: "shotgun" },
+  smg: { name: "🔫 MP5", damage: 16, fireRate: 80, range: 220, ammo: 40, maxAmmo: 160, type: "smg" },
+  pistol: { name: "🔫 Glock", damage: 15, fireRate: 200, range: 250, ammo: 15, maxAmmo: 60, type: "pistol" }
 };
 
 const BUILDINGS = [
@@ -135,6 +135,15 @@ export default function App() {
   const [activeModal, setActiveModal] = useState<string | null>(null);
   const [matchmakingPlayers, setMatchmakingPlayers] = useState<string[]>([]);
   const [killFeed, setKillFeed] = useState<{ id: number, killer: string, victim: string }[]>([]);
+  
+  // Joystick Refs
+  const leftJoyRef = useRef({ active: false, x: 0, y: 0, originX: 0, originY: 0, dirX: 0, dirY: 0, identifier: -1 });
+  const rightJoyRef = useRef({ active: false, x: 0, y: 0, originX: 0, originY: 0, dirX: 0, dirY: 0, identifier: -1 });
+  
+  const leftJoyBaseRef = useRef<HTMLDivElement>(null);
+  const leftJoyStickRef = useRef<HTMLDivElement>(null);
+  const rightJoyBaseRef = useRef<HTMLDivElement>(null);
+  const rightJoyStickRef = useRef<HTMLDivElement>(null);
   
   // HUD State (Synced from GameState periodically to avoid massive re-renders)
   const [hud, setHud] = useState({
@@ -366,7 +375,7 @@ export default function App() {
     ];
 
     state.current.lootItems = [];
-    for (let i = 0; i < 50; i++) {
+    for (let i = 0; i < 80; i++) {
       state.current.lootItems.push({
         x: Math.random() * MAP_WIDTH,
         y: Math.random() * MAP_HEIGHT,
@@ -374,7 +383,7 @@ export default function App() {
         itemType: "weapon"
       });
     }
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < 60; i++) {
       state.current.lootItems.push({
         x: Math.random() * MAP_WIDTH,
         y: Math.random() * MAP_HEIGHT,
@@ -573,7 +582,60 @@ export default function App() {
     });
   };
 
+  useEffect(() => {
+    const handleResize = () => {
+      if (canvasRef.current) {
+        canvasRef.current.width = window.innerWidth;
+        canvasRef.current.height = window.innerHeight;
+      }
+    };
+    window.addEventListener('resize', handleResize);
+    if (screen === 'game') {
+      handleResize();
+    }
+    return () => window.removeEventListener('resize', handleResize);
+  }, [screen]);
+
   // --- Game Loop Systems ---
+  const updateLootPickup = () => {
+    const p = state.current.localPlayer;
+    if (!p || !p.isAlive) return;
+
+    for (let i = 0; i < state.current.lootItems.length; i++) {
+      const item = state.current.lootItems[i];
+      const dist = Math.hypot(p.x - item.x, p.y - item.y);
+
+      if (dist < 45) {
+        if (item.itemType === "weapon") {
+          // Swap weapon if it's different or if we want to refresh ammo
+          if (p.weapon !== item.type) {
+            p.weapon = item.type;
+            p.ammo = WEAPONS[item.type].maxAmmo;
+            state.current.lootItems.splice(i, 1);
+            i--;
+            addMessage(`🔫 Picked up ${WEAPONS[item.type].name}`);
+          }
+        } else if (item.itemType === "consumable") {
+          if (item.type === "medkit") {
+            if (p.hp < 200) {
+              p.hp = Math.min(200, p.hp + 60);
+              state.current.lootItems.splice(i, 1);
+              i--;
+              addMessage("➕ Used Medkit (+60 HP)");
+            }
+          } else if (item.type === "armor") {
+            if (p.armor < 100) {
+              p.armor = Math.min(100, p.armor + 50);
+              state.current.lootItems.splice(i, 1);
+              i--;
+              addMessage("🛡️ Picked up Armor (+50)");
+            }
+          }
+        }
+      }
+    }
+  };
+
   const updateLocalMovement = () => {
     const p = state.current.localPlayer;
     if (!p || !p.isAlive) return;
@@ -581,17 +643,23 @@ export default function App() {
     let speed = p.isCrouching ? 2.5 : (p.isProne ? 1.5 : 5);
     if (p.speedBuff) speed *= p.speedBuff;
 
-    let moveX = 0, moveY = 0;
+    let moveX = leftJoyRef.current.dirX;
+    let moveY = leftJoyRef.current.dirY;
     
-    if (state.current.keys.w) moveY -= 1;
-    if (state.current.keys.s) moveY += 1;
-    if (state.current.keys.a) moveX -= 1;
-    if (state.current.keys.d) moveX += 1;
+    // Fallback to keyboard
+    if (moveX === 0 && moveY === 0) {
+      if (state.current.keys.w) moveY -= 1;
+      if (state.current.keys.s) moveY += 1;
+      if (state.current.keys.a) moveX -= 1;
+      if (state.current.keys.d) moveX += 1;
+    }
 
     if (moveX !== 0 || moveY !== 0) {
       const len = Math.hypot(moveX, moveY);
-      moveX /= len;
-      moveY /= len;
+      if (len > 1) {
+        moveX /= len;
+        moveY /= len;
+      }
     }
 
     p.x += moveX * speed;
@@ -621,7 +689,9 @@ export default function App() {
     resolveCollisions(p, 20);
 
     // Update angle
-    if (canvasRef.current) {
+    if (rightJoyRef.current.active && Math.hypot(rightJoyRef.current.dirX, rightJoyRef.current.dirY) > 0.1) {
+      p.angle = Math.atan2(rightJoyRef.current.dirY, rightJoyRef.current.dirX);
+    } else if (canvasRef.current && !('ontouchstart' in window)) {
       const mouseWorldX = state.current.mouse.x + state.current.camera.x;
       const mouseWorldY = state.current.mouse.y + state.current.camera.y;
       p.angle = Math.atan2(mouseWorldY - p.y, mouseWorldX - p.x);
@@ -903,10 +973,24 @@ export default function App() {
     // Loot items
     state.current.lootItems.forEach(l => {
       const pos = worldToScreen(l.x, l.y);
-      ctx.fillStyle = '#E0DED7'; // text-primary
-      ctx.beginPath();
-      ctx.arc(pos.x, pos.y, 4, 0, Math.PI * 2);
-      ctx.fill();
+      
+      if (l.itemType === 'weapon') {
+        ctx.fillStyle = '#D4AF37'; // gold
+        ctx.font = 'bold 10px "Inter", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(WEAPONS[l.type]?.name || 'Weapon', pos.x, pos.y - 10);
+        
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, 6, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.fillStyle = l.type === 'medkit' ? '#ff4d4d' : '#4d94ff';
+        ctx.font = 'bold 10px "Inter", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(l.type === 'medkit' ? '➕ MEDKIT' : '🛡️ ARMOR', pos.x, pos.y - 10);
+        
+        ctx.fillRect(pos.x - 5, pos.y - 5, 10, 10);
+      }
     });
 
     // Bullets
@@ -996,16 +1080,150 @@ export default function App() {
     }
   };
 
+  const updateJoysticks = () => {
+    if (leftJoyBaseRef.current && leftJoyStickRef.current) {
+      if (leftJoyRef.current.active) {
+        leftJoyStickRef.current.style.transform = `translate(${leftJoyRef.current.x - leftJoyRef.current.originX}px, ${leftJoyRef.current.y - leftJoyRef.current.originY}px)`;
+      } else {
+        leftJoyStickRef.current.style.transform = `translate(0px, 0px)`;
+      }
+    }
+    if (rightJoyBaseRef.current && rightJoyStickRef.current) {
+      if (rightJoyRef.current.active) {
+        rightJoyStickRef.current.style.transform = `translate(${rightJoyRef.current.x - rightJoyRef.current.originX}px, ${rightJoyRef.current.y - rightJoyRef.current.originY}px)`;
+      } else {
+        rightJoyStickRef.current.style.transform = `translate(0px, 0px)`;
+      }
+    }
+  };
+
   const gameLoop = (time: number) => {
     if (!state.current.isInGame) return;
     
+    updateJoysticks();
     updateLocalMovement();
     updateBotAI();
     updateBullets();
+    updateLootPickup();
     checkWin();
     draw();
     
     requestRef.current = requestAnimationFrame(gameLoop);
+  };
+
+  // --- Touch Handlers ---
+  const handleTouchStart = (e: React.TouchEvent, side: 'left' | 'right') => {
+    const joy = side === 'left' ? leftJoyRef.current : rightJoyRef.current;
+    const baseRef = side === 'left' ? leftJoyBaseRef.current : rightJoyBaseRef.current;
+    
+    if (!baseRef) return;
+    const rect = baseRef.getBoundingClientRect();
+    const originX = rect.left + rect.width / 2;
+    const originY = rect.top + rect.height / 2;
+    
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      const touch = e.changedTouches[i];
+      const isLeft = touch.clientX < window.innerWidth / 2;
+      if ((side === 'left' && isLeft) || (side === 'right' && !isLeft)) {
+        joy.active = true;
+        joy.identifier = touch.identifier;
+        joy.originX = originX;
+        joy.originY = originY;
+        joy.x = touch.clientX;
+        joy.y = touch.clientY;
+        
+        // Calculate initial direction based on touch relative to fixed origin
+        let dx = joy.x - joy.originX;
+        let dy = joy.y - joy.originY;
+        const dist = Math.hypot(dx, dy);
+        const maxDist = 40;
+        
+        if (dist > maxDist) {
+          dx = (dx / dist) * maxDist;
+          dy = (dy / dist) * maxDist;
+          joy.x = joy.originX + dx;
+          joy.y = joy.originY + dy;
+        }
+        
+        joy.dirX = dx / maxDist;
+        joy.dirY = dy / maxDist;
+        break;
+      }
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent, side: 'left' | 'right') => {
+    const joy = side === 'left' ? leftJoyRef.current : rightJoyRef.current;
+    if (!joy.active) return;
+    
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      const touch = e.changedTouches[i];
+      if (touch.identifier === joy.identifier) {
+        joy.x = touch.clientX;
+        joy.y = touch.clientY;
+        
+        let dx = joy.x - joy.originX;
+        let dy = joy.y - joy.originY;
+        const dist = Math.hypot(dx, dy);
+        const maxDist = 40; 
+        
+        if (dist > maxDist) {
+          dx = (dx / dist) * maxDist;
+          dy = (dy / dist) * maxDist;
+          joy.x = joy.originX + dx;
+          joy.y = joy.originY + dy;
+        }
+        
+        joy.dirX = dx / maxDist;
+        joy.dirY = dy / maxDist;
+        break;
+      }
+    }
+  };
+
+  const autoAimAndShoot = () => {
+    const p = state.current.localPlayer;
+    if (!p || !p.isAlive) return;
+    
+    let closestEnemy = null;
+    let closestDist = Infinity;
+    
+    for (let enemy of state.current.enemies) {
+      if (enemy.hp <= 0) continue;
+      const dist = Math.hypot(enemy.x - p.x, enemy.y - p.y);
+      if (dist < closestDist && dist < 600) {
+        closestDist = dist;
+        closestEnemy = enemy;
+      }
+    }
+    
+    if (closestEnemy) {
+      p.angle = Math.atan2(closestEnemy.y - p.y, closestEnemy.x - p.x);
+      shootBullet();
+    }
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent, side: 'left' | 'right') => {
+    const joy = side === 'left' ? leftJoyRef.current : rightJoyRef.current;
+    if (!joy.active) return;
+    
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      const touch = e.changedTouches[i];
+      if (touch.identifier === joy.identifier) {
+        if (side === 'right') {
+          if (Math.hypot(joy.dirX, joy.dirY) < 0.2) {
+            autoAimAndShoot();
+          } else {
+            shootBullet();
+          }
+        }
+        joy.active = false;
+        joy.identifier = -1;
+        joy.dirX = 0;
+        joy.dirY = 0;
+        break;
+      }
+    }
   };
 
   // --- Event Listeners ---
@@ -1128,135 +1346,127 @@ export default function App() {
       )}
 
       {screen === 'lobby' && (
-        <div className="fixed inset-0 bg-[#0a0a0c] flex flex-col z-[200] overflow-hidden" style={{
+        <div className="fixed inset-0 bg-[#0a0a0c] flex flex-col z-[200] overflow-hidden touch-none" style={{
           backgroundImage: 'radial-gradient(circle at 50% 50%, rgba(212, 175, 55, 0.05) 0%, transparent 60%), linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px)',
           backgroundSize: '100% 100%, 40px 40px, 40px 40px'
         }}>
+          {/* Floating Title */}
+          <div className="absolute right-4 top-1/4 font-serif text-[32px] md:text-[48px] italic text-white/20 tracking-[4px] uppercase rotate-90 origin-right pointer-events-none whitespace-nowrap mix-blend-overlay">
+            Grand Fire Pixel Games
+          </div>
+
           {/* Top Bar */}
-          <header className="h-[60px] flex items-center justify-between px-4 shrink-0 mt-2">
+          <header className="h-[40px] sm:h-[60px] flex items-center justify-between px-2 md:px-4 shrink-0 mt-2 z-20">
             {/* Top Left: Profile */}
-            <div className="flex items-center gap-2 bg-black/40 pr-4 rounded-full border border-white/10 backdrop-blur-sm">
-              <div className="w-12 h-12 bg-accent-dim rounded-full flex items-center justify-center font-serif text-white text-[20px] border-2 border-accent-gold shadow-[0_0_10px_rgba(212,175,55,0.5)]">
+            <div className="flex items-center gap-2 bg-black/40 pr-3 rounded-full border border-white/10 backdrop-blur-sm scale-75 sm:scale-90 md:scale-100 origin-left">
+              <div className="w-8 h-8 sm:w-10 sm:h-10 bg-accent-dim rounded-full flex items-center justify-center font-serif text-white text-[14px] sm:text-[18px] border-2 border-accent-gold shadow-[0_0_10px_rgba(212,175,55,0.5)]">
                 {playerName ? playerName[0].toUpperCase() : 'U'}
               </div>
               <div className="flex flex-col">
-                <span className="font-bold text-[14px] text-white">{playerName || 'Guest'}</span>
-                <span className="text-[10px] text-accent-gold bg-black/50 px-2 rounded-sm w-fit">Lv.{playerData.level}</span>
+                <span className="font-bold text-[10px] sm:text-[12px] text-white">{playerName || 'Guest'}</span>
+                <span className="text-[8px] sm:text-[9px] text-accent-gold bg-black/50 px-1 rounded-sm w-fit">Lv.{playerData.level}</span>
               </div>
             </div>
 
             {/* Top Center: Currencies */}
-            <div className="flex gap-4">
-              <div className="flex items-center bg-black/40 rounded-full border border-white/10 px-3 py-1 backdrop-blur-sm">
-                <div className="w-5 h-5 rounded-full bg-yellow-500 mr-2 border border-yellow-300 shadow-[0_0_5px_yellow]"></div>
-                <span className="font-bold text-[14px] text-white mr-4">{playerData.gold.toLocaleString()}</span>
-                <button className="w-5 h-5 bg-white/20 rounded-sm flex items-center justify-center text-white text-[14px] leading-none hover:bg-white/40">+</button>
+            <div className="flex gap-1 sm:gap-2 scale-75 sm:scale-90 md:scale-100">
+              <div className="flex items-center bg-black/40 rounded-full border border-white/10 px-2 py-1 backdrop-blur-sm">
+                <div className="w-3 h-3 sm:w-4 sm:h-4 rounded-full bg-yellow-500 mr-1 border border-yellow-300 shadow-[0_0_5px_yellow]"></div>
+                <span className="font-bold text-[10px] sm:text-[12px] text-white mr-1 sm:mr-2">{playerData.gold.toLocaleString()}</span>
               </div>
-              <div className="flex items-center bg-black/40 rounded-full border border-white/10 px-3 py-1 backdrop-blur-sm">
-                <div className="w-5 h-5 rounded-sm bg-blue-500 mr-2 border border-blue-300 shadow-[0_0_5px_blue] rotate-45 transform scale-75"></div>
-                <span className="font-bold text-[14px] text-white mr-4">{playerData.diamonds.toLocaleString()}</span>
-                <button className="w-5 h-5 bg-white/20 rounded-sm flex items-center justify-center text-white text-[14px] leading-none hover:bg-white/40">+</button>
+              <div className="flex items-center bg-black/40 rounded-full border border-white/10 px-2 py-1 backdrop-blur-sm">
+                <div className="w-3 h-3 sm:w-4 sm:h-4 rounded-sm bg-blue-500 mr-1 border border-blue-300 shadow-[0_0_5px_blue] rotate-45 transform scale-75"></div>
+                <span className="font-bold text-[10px] sm:text-[12px] text-white mr-1 sm:mr-2">{playerData.diamonds.toLocaleString()}</span>
               </div>
             </div>
 
             {/* Top Right: Icons */}
-            <div className="flex items-center gap-4">
-              <div className="flex gap-3 text-white/80">
-                <Battery size={20} />
-                <Wifi size={20} />
-                <Settings size={20} onClick={() => setActiveModal('SETTINGS')} className="cursor-pointer hover:text-white" />
-                <Mail size={20} onClick={() => setActiveModal('MAIL')} className="cursor-pointer hover:text-white" />
-              </div>
-              <div className="font-serif text-[24px] italic text-white tracking-[2px] uppercase ml-4 drop-shadow-[0_0_5px_rgba(255,255,255,0.5)]">
-                Grand Fire Pixel Games
-              </div>
+            <div className="flex items-center gap-2 sm:gap-3 text-white/80 scale-75 sm:scale-90 md:scale-100 origin-right">
+              <Battery size={16} className="sm:w-[18px] sm:h-[18px]" />
+              <Wifi size={16} className="sm:w-[18px] sm:h-[18px]" />
+              <Settings size={16} className="sm:w-[18px] sm:h-[18px] cursor-pointer hover:text-white" onClick={() => setActiveModal('SETTINGS')} />
             </div>
           </header>
 
           {/* Main Lobby Area */}
-          <div className="flex-1 flex justify-between p-4 relative">
-            {/* Left Menu */}
-            <div className="flex flex-col gap-2 w-[180px] z-10 mt-10">
+          <div className="flex-1 flex items-center justify-center relative z-10">
+            {/* Left Menu - Mobile Optimized */}
+            <div className="absolute left-2 top-1/2 -translate-y-1/2 flex flex-col gap-1 sm:gap-2 w-[100px] sm:w-[140px]">
               {['STORE', 'LUCK ROYALE', 'BOOYAH PASS', 'MISSIONS', 'EVENTS'].map((item, idx) => (
                 <button 
                   key={item} 
                   onClick={() => setActiveModal(item)}
-                  className="p-[10px_15px] bg-gradient-to-r from-black/80 to-transparent border-l-4 border-accent-gold text-white uppercase text-[12px] font-bold tracking-[1px] text-left hover:pl-5 transition-all shadow-lg flex items-center gap-3"
+                  className="p-[6px_8px] sm:p-[8px_10px] bg-gradient-to-r from-black/80 to-transparent border-l-2 border-accent-gold text-white uppercase text-[8px] sm:text-[10px] font-bold tracking-[1px] text-left hover:pl-3 transition-all shadow-lg flex items-center gap-1 sm:gap-2"
                 >
-                  <div className="w-6 h-6 bg-white/10 rounded flex items-center justify-center text-[10px]">{idx + 1}</div>
-                  {item}
+                  <div className="w-4 h-4 sm:w-5 sm:h-5 bg-white/10 rounded flex items-center justify-center text-[8px] sm:text-[9px] shrink-0">{idx + 1}</div>
+                  <span className="truncate">{item}</span>
                 </button>
               ))}
             </div>
 
-            {/* Center Character Card */}
-            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-              <div className="w-[320px] h-[480px] bg-gradient-to-b from-black/60 to-black/90 border border-accent-gold/30 rounded-xl p-4 relative pointer-events-auto backdrop-blur-md shadow-[0_0_50px_rgba(212,175,55,0.15)] flex flex-col items-center justify-end overflow-hidden group transition-transform hover:scale-105">
-                <div className="absolute inset-0 bg-[url('https://picsum.photos/seed/grandfire/300/450')] opacity-50 bg-cover bg-center mix-blend-overlay group-hover:opacity-70 transition-opacity"></div>
-                <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent"></div>
+            {/* Center Character Card - Mobile Optimized */}
+            <div className="w-[200px] h-[300px] sm:w-[260px] sm:h-[380px] md:w-[320px] md:h-[480px] max-h-[50vh] bg-gradient-to-b from-black/60 to-black/90 border border-accent-gold/30 rounded-xl p-3 relative pointer-events-auto backdrop-blur-md shadow-[0_0_50px_rgba(212,175,55,0.15)] flex flex-col items-center justify-end overflow-hidden group transition-transform hover:scale-105">
+              <div className="absolute inset-0 bg-[url('https://picsum.photos/seed/grandfire/300/450')] opacity-50 bg-cover bg-center mix-blend-overlay group-hover:opacity-70 transition-opacity"></div>
+              <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent"></div>
+              
+              <div className="relative z-10 w-full text-center">
+                <div className="font-serif text-[28px] sm:text-[36px] md:text-[48px] text-white capitalize font-bold drop-shadow-[0_4px_8px_rgba(0,0,0,0.9)]">{character}</div>
+                <div className="text-[10px] sm:text-[12px] md:text-[16px] uppercase tracking-[3px] text-accent-gold mb-2 sm:mb-4 font-bold drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]">Level {playerData.level}</div>
                 
-                <div className="relative z-10 w-full text-center">
-                  <div className="font-serif text-[48px] text-white capitalize font-bold drop-shadow-[0_4px_8px_rgba(0,0,0,0.9)]">{character}</div>
-                  <div className="text-[16px] uppercase tracking-[3px] text-accent-gold mb-6 font-bold drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]">Level {playerData.level}</div>
-                  
-                  <select 
-                    value={character}
-                    onChange={(e) => setCharacter(e.target.value)}
-                    className="w-full p-[12px] bg-black/80 border border-accent-gold/50 text-white text-[14px] outline-none appearance-none cursor-pointer uppercase tracking-[2px] hover:border-accent-gold hover:bg-accent-gold/10 transition-colors rounded text-center font-bold backdrop-blur-md"
-                  >
-                    <option value="kelly">Kelly (Speed)</option>
-                    <option value="nairi">Nairi (Armor)</option>
-                    <option value="alok">Alok (Heal)</option>
-                    <option value="chrono">Chrono (Shield)</option>
-                  </select>
-                </div>
+                <select 
+                  value={character}
+                  onChange={(e) => setCharacter(e.target.value)}
+                  className="w-full p-[8px] sm:p-[10px] bg-black/80 border border-accent-gold/50 text-white text-[10px] sm:text-[12px] outline-none appearance-none cursor-pointer uppercase tracking-[2px] hover:border-accent-gold hover:bg-accent-gold/10 transition-colors rounded text-center font-bold backdrop-blur-md"
+                >
+                  <option value="kelly">Kelly (Speed)</option>
+                  <option value="nairi">Nairi (Armor)</option>
+                  <option value="alok">Alok (Heal)</option>
+                  <option value="chrono">Chrono (Shield)</option>
+                </select>
               </div>
             </div>
-
-            {/* Right Side (Empty for balance, mode selector is at bottom right) */}
-            <div className="w-[250px] z-10"></div>
           </div>
 
-          {/* Bottom Bar */}
-          <div className="h-[80px] flex items-end justify-between px-4 pb-4 shrink-0 z-10">
-            {/* Bottom Left: Chat */}
-            <div className="flex flex-col gap-2 w-[300px]">
-              <div className="bg-black/60 border border-white/10 rounded p-2 flex items-center gap-2 backdrop-blur-sm">
-                <MessageSquare size={16} className="text-white/60" />
-                <span className="text-[11px] text-white/60">World | Team Invite...</span>
+          {/* Bottom Bar - Mobile Optimized */}
+          <div className="flex flex-col gap-1 sm:gap-2 px-2 pb-2 shrink-0 z-20">
+            {/* Chat & Menus Row */}
+            <div className="flex items-center justify-between">
+              {/* Chat */}
+              <div className="bg-black/60 border border-white/10 rounded p-1 sm:p-2 flex items-center gap-1 sm:gap-2 backdrop-blur-sm w-[120px] sm:w-[150px] md:w-[250px]">
+                <MessageSquare size={12} className="text-white/60 sm:w-[14px] sm:h-[14px]" />
+                <span className="text-[8px] sm:text-[9px] md:text-[11px] text-white/60 truncate">World | Team Invite...</span>
+              </div>
+
+              {/* Menus */}
+              <div className="flex gap-1 sm:gap-2">
+                <button onClick={() => setActiveModal('WEAPON')} className="flex flex-col items-center gap-1 text-white/80 hover:text-white">
+                  <div className="w-8 h-6 sm:w-10 sm:h-8 bg-black/60 border border-white/10 rounded flex items-center justify-center backdrop-blur-sm"><Crosshair size={14} className="sm:w-[16px] sm:h-[16px]" /></div>
+                  <span className="text-[6px] sm:text-[8px] uppercase font-bold">Weapon</span>
+                </button>
+                <button onClick={() => setActiveModal('PRESET')} className="flex flex-col items-center gap-1 text-white/80 hover:text-white">
+                  <div className="w-8 h-6 sm:w-10 sm:h-8 bg-black/60 border border-white/10 rounded flex items-center justify-center backdrop-blur-sm"><User size={14} className="sm:w-[16px] sm:h-[16px]" /></div>
+                  <span className="text-[6px] sm:text-[8px] uppercase font-bold">Preset</span>
+                </button>
+                <button onClick={() => setActiveModal('LAB')} className="flex flex-col items-center gap-1 text-white/80 hover:text-white">
+                  <div className="w-8 h-6 sm:w-10 sm:h-8 bg-black/60 border border-white/10 rounded flex items-center justify-center backdrop-blur-sm"><Beaker size={14} className="sm:w-[16px] sm:h-[16px]" /></div>
+                  <span className="text-[6px] sm:text-[8px] uppercase font-bold">Lab</span>
+                </button>
               </div>
             </div>
 
-            {/* Bottom Center: Menus */}
-            <div className="flex gap-4">
-              <button onClick={() => setActiveModal('WEAPON')} className="flex flex-col items-center gap-1 text-white/80 hover:text-white hover:-translate-y-1 transition-transform">
-                <div className="w-12 h-10 bg-black/60 border border-white/10 rounded flex items-center justify-center backdrop-blur-sm"><Crosshair size={20} /></div>
-                <span className="text-[10px] uppercase font-bold">Weapon</span>
-              </button>
-              <button onClick={() => setActiveModal('PRESET')} className="flex flex-col items-center gap-1 text-white/80 hover:text-white hover:-translate-y-1 transition-transform">
-                <div className="w-12 h-10 bg-black/60 border border-white/10 rounded flex items-center justify-center backdrop-blur-sm"><User size={20} /></div>
-                <span className="text-[10px] uppercase font-bold">Preset</span>
-              </button>
-              <button onClick={() => setActiveModal('LAB')} className="flex flex-col items-center gap-1 text-white/80 hover:text-white hover:-translate-y-1 transition-transform">
-                <div className="w-12 h-10 bg-black/60 border border-white/10 rounded flex items-center justify-center backdrop-blur-sm"><Beaker size={20} /></div>
-                <span className="text-[10px] uppercase font-bold">Lab</span>
-              </button>
-            </div>
-
-            {/* Bottom Right: Mode & Start */}
-            <div className="flex items-end gap-2">
-              <div className="bg-black/80 border border-white/20 rounded p-2 flex flex-col min-w-[150px] backdrop-blur-sm">
-                <div className="flex items-center gap-2 mb-1">
-                  <div className="w-6 h-6 bg-accent-gold rounded flex items-center justify-center text-black font-bold text-[10px]">BR</div>
-                  <span className="text-white font-bold text-[14px] uppercase">{mode}-RANKED</span>
+            {/* Mode & Start Row */}
+            <div className="flex items-end justify-between mt-1">
+              <div className="bg-black/80 border border-white/20 rounded p-1 sm:p-2 flex flex-col w-[120px] sm:w-[150px] md:w-[200px] backdrop-blur-sm">
+                <div className="flex items-center gap-1 sm:gap-2 mb-1">
+                  <div className="w-4 h-4 sm:w-5 sm:h-5 bg-accent-gold rounded flex items-center justify-center text-black font-bold text-[8px] sm:text-[9px]">BR</div>
+                  <span className="text-white font-bold text-[10px] sm:text-[12px] uppercase">{mode}-RANKED</span>
                 </div>
-                <div className="text-[10px] text-white/60 uppercase">Random Map</div>
-                <div className="flex gap-1 mt-2">
+                <div className="flex gap-1 mt-1">
                   {['solo', 'duo', 'squad'].map(m => (
                     <button 
                       key={m}
                       onClick={() => setMode(m)}
-                      className={`flex-1 py-1 text-[9px] uppercase font-bold rounded ${mode === m ? 'bg-accent-gold text-black' : 'bg-white/10 text-white hover:bg-white/20'}`}
+                      className={`flex-1 py-1 text-[6px] sm:text-[8px] uppercase font-bold rounded ${mode === m ? 'bg-accent-gold text-black' : 'bg-white/10 text-white'}`}
                     >
                       {m}
                     </button>
@@ -1265,7 +1475,7 @@ export default function App() {
               </div>
               <button 
                 onClick={startMatchmaking}
-                className="h-[60px] px-10 font-bold bg-accent-gold text-black uppercase tracking-[2px] cursor-pointer hover:brightness-110 transition-all text-[24px] rounded shadow-[0_0_20px_rgba(212,175,55,0.4)] border-b-4 border-[rgba(0,0,0,0.3)] active:border-b-0 active:translate-y-1"
+                className="h-[40px] sm:h-[50px] md:h-[60px] px-6 sm:px-8 md:px-12 font-bold bg-accent-gold text-black uppercase tracking-[2px] cursor-pointer hover:brightness-110 transition-all text-[16px] sm:text-[20px] md:text-[24px] rounded shadow-[0_0_20px_rgba(212,175,55,0.4)] border-b-4 border-[rgba(0,0,0,0.3)] active:border-b-0 active:translate-y-1"
               >
                 START
               </button>
@@ -1345,12 +1555,64 @@ export default function App() {
       )}
 
       {screen === 'game' && (
-        <div className="fixed inset-0 bg-bg-deep z-[300] flex flex-col">
-          {/* HUD Top - Header Style */}
-          <header className="h-[70px] bg-bg-card border-b border-border-dark flex items-center justify-between px-10 z-[350] pointer-events-none shrink-0">
-            <div className="font-serif text-[24px] italic text-accent-gold tracking-[2px] uppercase">
-              Grand Fire Pixel Games
+        <div className="fixed inset-0 bg-black z-[300] touch-none">
+          <canvas
+            ref={canvasRef}
+            className="block w-full h-full"
+          />
+
+          {/* Mobile Controls Overlay */}
+          <div className="absolute inset-0 pointer-events-none z-[300] touch-none">
+            {/* Left Touch Area */}
+            <div 
+              className="absolute left-0 top-0 w-1/2 h-full pointer-events-auto"
+              onTouchStart={(e) => handleTouchStart(e, 'left')}
+              onTouchMove={(e) => handleTouchMove(e, 'left')}
+              onTouchEnd={(e) => handleTouchEnd(e, 'left')}
+              onTouchCancel={(e) => handleTouchEnd(e, 'left')}
+            />
+            {/* Right Touch Area */}
+            <div 
+              className="absolute right-0 top-0 w-1/2 h-full pointer-events-auto"
+              onTouchStart={(e) => handleTouchStart(e, 'right')}
+              onTouchMove={(e) => handleTouchMove(e, 'right')}
+              onTouchEnd={(e) => handleTouchEnd(e, 'right')}
+              onTouchCancel={(e) => handleTouchEnd(e, 'right')}
+            />
+
+            {/* Left Joystick Visual (Always Visible Base) */}
+            <div ref={leftJoyBaseRef} className="absolute left-[40px] bottom-[40px] w-[120px] h-[120px] bg-white/10 rounded-full border border-white/20 pointer-events-none flex items-center justify-center">
+              <div ref={leftJoyStickRef} className="w-[50px] h-[50px] bg-white/40 rounded-full shadow-[0_0_15px_rgba(255,255,255,0.3)] transition-transform duration-75"></div>
             </div>
+
+            {/* Right Joystick Visual (Always Visible Base) */}
+            <div ref={rightJoyBaseRef} className="absolute right-[40px] bottom-[40px] w-[120px] h-[120px] bg-white/10 rounded-full border border-white/20 pointer-events-none flex items-center justify-center">
+              <div ref={rightJoyStickRef} className="w-[50px] h-[50px] bg-accent-gold/40 rounded-full shadow-[0_0_15px_rgba(212,175,55,0.3)] transition-transform duration-75 flex items-center justify-center">
+                <Crosshair size={24} className="text-white/80" />
+              </div>
+            </div>
+
+            {/* Super Button */}
+            <button 
+              onClick={useCharacterSkill}
+              className="absolute right-[40px] bottom-[180px] w-[60px] h-[60px] bg-gradient-to-br from-yellow-400 to-orange-600 rounded-full border-2 border-white/50 shadow-[0_0_15px_rgba(255,165,0,0.8)] pointer-events-auto flex items-center justify-center active:scale-90 transition-transform"
+            >
+              <Zap size={28} className="text-white drop-shadow-md" />
+            </button>
+            
+            {/* Auto Aim Hint */}
+            <div className="absolute right-[40px] bottom-[250px] text-white/50 text-[10px] uppercase tracking-[1px] pointer-events-none text-right">
+              Tap right side<br/>to Auto-Aim
+            </div>
+          </div>
+
+          {/* HUD Overlay */}
+          <div className="absolute inset-0 pointer-events-none z-[350]">
+            {/* HUD Top - Header Style */}
+            <header className="absolute top-0 left-0 right-0 h-[50px] md:h-[70px] bg-bg-card/80 backdrop-blur-sm border-b border-border-dark flex items-center justify-between px-4 md:px-10 z-[350] pointer-events-none">
+              <div className="font-serif text-[16px] md:text-[24px] italic text-accent-gold tracking-[2px] uppercase">
+                Grand Fire Pixel Games
+              </div>
             
             {/* Kill Feed */}
             <div className="absolute top-[80px] right-10 flex flex-col gap-2 pointer-events-none">
@@ -1379,63 +1641,57 @@ export default function App() {
             </div>
           </header>
 
-          <div className="relative flex-1 bg-border-dark">
-            <canvas 
-              ref={canvasRef} 
-              className="block w-full h-full cursor-crosshair"
-            />
-
-            {/* Zone Timer */}
-            <div className="absolute top-5 right-10 bg-bg-deep p-[15px_20px] border border-border-dark z-[350] pointer-events-none">
-              <div className="font-serif text-[14px] italic text-accent-gold mb-2 border-b border-border-dark pb-1">Safe Zone</div>
-              <div className="text-[13px] text-text-secondary">{hud.zoneTimer}s | {hud.zoneRadius}m</div>
-            </div>
-
-            {/* Weapon Panel */}
-            <div className="absolute bottom-5 left-10 bg-bg-deep p-[15px_20px] border border-border-dark z-[350] pointer-events-none">
-              <div className="font-serif text-[14px] italic text-accent-gold mb-2 border-b border-border-dark pb-1">Equipped</div>
-              <div className="text-[13px] text-text-secondary">{hud.weaponName} | {hud.ammo}/{hud.maxAmmo}</div>
-            </div>
-
-            {/* Quick Chat Messages */}
-            {hud.messages.map((msg, i) => (
-              <div key={msg.id} className="absolute left-10 bg-bg-deep p-[10px_15px] border border-border-dark text-text-primary text-[12px] z-[350] pointer-events-none transition-all" style={{ bottom: `${100 + i * 45}px` }}>
-                {msg.text}
-              </div>
-            ))}
-
-            {/* Booyah Screen */}
-            {hud.booyah && (
-              <div className="absolute top-1/2 left-1/2 text-[48px] font-serif italic text-accent-gold z-[400] pointer-events-none whitespace-nowrap animate-booyah text-center">
-                VICTORY<br/>
-                <span className="text-[14px] uppercase tracking-[4px] text-text-secondary not-italic">The Empire Prevails</span>
-              </div>
-            )}
-
-            {/* Game Over Screen */}
-            {hud.gameOver && (
-              <div className="absolute top-1/2 left-1/2 text-[48px] font-serif italic text-accent-dim z-[400] pointer-events-none whitespace-nowrap animate-booyah text-center">
-                DEFEAT<br/>
-                <span className="text-[14px] uppercase tracking-[4px] text-text-secondary not-italic">Rank #{hud.place}</span>
-              </div>
-            )}
+          {/* Zone Timer */}
+          <div className="absolute top-[80px] right-4 bg-black/60 p-[10px_15px] border border-white/10 rounded backdrop-blur-sm z-[350] pointer-events-none">
+            <div className="font-serif text-[12px] italic text-accent-gold mb-1 border-b border-white/10 pb-1">Safe Zone</div>
+            <div className="text-[11px] text-white/80">{hud.zoneTimer}s | {hud.zoneRadius}m</div>
           </div>
 
-          {/* Action Buttons - Footer Style */}
-          <footer className="h-[60px] bg-bg-card border-t border-border-dark flex items-center justify-center gap-5 z-[350] shrink-0">
-            <button onClick={handleJump} className="bg-transparent border border-accent-gold text-accent-gold px-[30px] py-[8px] uppercase text-[11px] tracking-[2px] cursor-pointer hover:bg-[rgba(212,175,55,0.05)]">
-              Jump
+          {/* Weapon Panel - Moved to Top Left */}
+          <div className="absolute top-[80px] left-4 bg-black/60 p-[10px_15px] border border-white/10 rounded backdrop-blur-sm z-[350] pointer-events-none">
+            <div className="font-serif text-[12px] italic text-accent-gold mb-1 border-b border-white/10 pb-1">Equipped</div>
+            <div className="text-[11px] text-white/80">{hud.weaponName} | {hud.ammo}/{hud.maxAmmo}</div>
+          </div>
+
+          {/* Quick Chat Messages */}
+          {hud.messages.map((msg, i) => (
+            <div key={msg.id} className="absolute left-4 bg-black/60 p-[8px_12px] border border-white/10 rounded text-white text-[10px] z-[350] pointer-events-none transition-all backdrop-blur-sm" style={{ bottom: `${80 + i * 40}px` }}>
+              {msg.text}
+            </div>
+          ))}
+
+          {/* Booyah Screen */}
+          {hud.booyah && (
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-[36px] md:text-[48px] font-serif italic text-accent-gold z-[400] pointer-events-none whitespace-nowrap animate-booyah text-center drop-shadow-[0_0_20px_rgba(212,175,55,0.8)]">
+              VICTORY<br/>
+              <span className="text-[12px] md:text-[14px] uppercase tracking-[4px] text-white/80 not-italic">The Empire Prevails</span>
+            </div>
+          )}
+
+          {/* Game Over Screen */}
+          {hud.gameOver && (
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-[36px] md:text-[48px] font-serif italic text-red-500 z-[400] pointer-events-none whitespace-nowrap animate-booyah text-center drop-shadow-[0_0_20px_rgba(255,0,0,0.8)]">
+              DEFEAT<br/>
+              <span className="text-[12px] md:text-[14px] uppercase tracking-[4px] text-white/80 not-italic">Rank #{hud.place}</span>
+            </div>
+          )}
+
+          {/* Floating Action Buttons */}
+          <div className="absolute bottom-[20px] left-1/2 -translate-x-1/2 flex gap-2 md:gap-4 z-[350] pointer-events-auto">
+            <button onClick={handleJump} className="w-[40px] h-[40px] md:w-[50px] md:h-[50px] bg-black/50 border border-white/20 rounded-full flex items-center justify-center text-white text-[10px] uppercase backdrop-blur-sm active:bg-white/20">
+              JMP
             </button>
-            <button onClick={handleCrouch} className="bg-transparent border border-accent-gold text-accent-gold px-[30px] py-[8px] uppercase text-[11px] tracking-[2px] cursor-pointer hover:bg-[rgba(212,175,55,0.05)]">
-              Crouch
+            <button onClick={handleCrouch} className="w-[40px] h-[40px] md:w-[50px] md:h-[50px] bg-black/50 border border-white/20 rounded-full flex items-center justify-center text-white text-[10px] uppercase backdrop-blur-sm active:bg-white/20">
+              CRH
             </button>
-            <button onClick={handleMedkit} className="bg-transparent border border-accent-gold text-accent-gold px-[30px] py-[8px] uppercase text-[11px] tracking-[2px] cursor-pointer hover:bg-[rgba(212,175,55,0.05)]">
-              Medkit
+            <button onClick={handleMedkit} className="w-[40px] h-[40px] md:w-[50px] md:h-[50px] bg-black/50 border border-white/20 rounded-full flex items-center justify-center text-white text-[10px] uppercase backdrop-blur-sm active:bg-white/20">
+              MED
             </button>
-            <button onClick={handleQuickChat} className="bg-accent-gold border border-accent-gold text-bg-deep font-bold px-[30px] py-[8px] uppercase text-[11px] tracking-[2px] cursor-pointer hover:opacity-90">
-              Quick Chat
+            <button onClick={handleQuickChat} className="w-[40px] h-[40px] md:w-[50px] md:h-[50px] bg-black/50 border border-white/20 rounded-full flex items-center justify-center text-white text-[10px] uppercase backdrop-blur-sm active:bg-white/20">
+              MSG
             </button>
-          </footer>
+          </div>
+        </div>
         </div>
       )}
     </div>
