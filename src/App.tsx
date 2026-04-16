@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { Settings, Mail, Battery, Wifi, MessageSquare, Users, Crosshair, User, Beaker, Zap, Shield, Activity, Luggage, Skull, Sword, Map, Target } from 'lucide-react';
 import { ref, set, onValue, get } from 'firebase/database';
 import { db } from './firebase';
@@ -113,6 +114,7 @@ interface GameState {
   lootItems: any[];
   safeZone: { x: number; y: number; radius: number; shrinkTimer: number; nextRadius: number };
   zoneDamage: number;
+  matchTime: number;
   keys: Record<string, boolean>;
   mouse: { x: number; y: number };
   lastShoot: number;
@@ -164,6 +166,8 @@ export default function App() {
     booyah: false,
     gameOver: false,
     place: 0,
+    playerPos: { x: 1500, y: 1500, angle: 0 },
+    safeZone: { x: 1500, y: 1500, radius: 800 },
   });
 
   // --- Refs ---
@@ -319,7 +323,38 @@ export default function App() {
     setDropPoint({ x, y });
   };
 
+  const [isRespawning, setIsRespawning] = useState(false);
+
+  const handlePlayerDeath = () => {
+    // Check if player can respawn (e.g. within 20s if it's early or first time)
+    // The user requested: "USAER AKBAR NMORLE 20 SEC MODEH AYTO REVIE PABE TOKN DROP ZONE ABAR ASBE"
+    if (!isRespawning) {
+      setIsRespawning(true);
+      setScreen('drop_selection');
+      setDropTimer(20);
+      addMessage("⚠️ YOU DIED! Respawning in 20s...");
+    } else {
+      triggerGameOver();
+    }
+  };
+
   const startGame = () => {
+    if (isRespawning) {
+      const p = state.current.localPlayer;
+      if (p) {
+        p.x = dropPoint.x;
+        p.y = dropPoint.y;
+        p.hp = 200;
+        p.armor = 0;
+        p.isAlive = true;
+        p.ammo = WEAPONS[p.weapon].maxAmmo;
+      }
+      setScreen('game');
+      setIsRespawning(false);
+      addMessage("🚀 RESPAYWNED! Get back in the fight!");
+      return;
+    }
+
     setScreen('game');
     
     // Clear matchmaking queue for this player
@@ -350,6 +385,7 @@ export default function App() {
     state.current.gameOverDisplay = false;
     state.current.safeZone = { x: 1500, y: 1500, radius: 800, shrinkTimer: 60, nextRadius: 600 };
     state.current.zoneDamage = 5;
+    state.current.matchTime = 0;
 
     // Generate Enemies
     const totalPlayers = 20;
@@ -430,23 +466,48 @@ export default function App() {
     zoneIntervalRef.current = setInterval(() => {
       if (!state.current.isInGame || !state.current.localPlayer?.isAlive) return;
       
-      state.current.safeZone.shrinkTimer--;
+      state.current.matchTime++;
       
-      if (state.current.safeZone.shrinkTimer <= 0) {
-        state.current.safeZone.radius = Math.max(100, state.current.safeZone.radius - 80);
-        state.current.safeZone.shrinkTimer = 45;
-        state.current.zoneDamage += 1;
-      }
-
-      // Zone Damage
-      const p = state.current.localPlayer;
-      const distToZone = Math.hypot(p.x - state.current.safeZone.x, p.y - state.current.safeZone.y);
-      if (distToZone > state.current.safeZone.radius && p.isAlive) {
-        p.hp = Math.max(0, p.hp - state.current.zoneDamage);
-        if (p.hp <= 0) {
-          p.isAlive = false;
-          triggerGameOver();
+      // Zone only starts shrinking and damaging after 1 minute (60s)
+      if (state.current.matchTime > 60) {
+        state.current.safeZone.shrinkTimer--;
+        
+        if (state.current.safeZone.shrinkTimer <= 0) {
+          state.current.safeZone.radius = Math.max(100, state.current.safeZone.radius - 80);
+          state.current.safeZone.shrinkTimer = 45;
+          state.current.zoneDamage += 1;
         }
+
+        const zone = state.current.safeZone;
+        const damage = state.current.zoneDamage;
+
+        // Player Zone Damage
+        const p = state.current.localPlayer;
+        if (p) {
+          const distToZone = Math.hypot(p.x - zone.x, p.y - zone.y);
+          if (distToZone > zone.radius && p.isAlive) {
+            p.hp = Math.max(0, p.hp - damage);
+            if (p.hp <= 0) {
+              p.isAlive = false;
+              handlePlayerDeath();
+            }
+          }
+        }
+
+        // Bot Zone Damage
+        state.current.enemies.forEach(bot => {
+          if (bot.hp > 0) {
+            const dist = Math.hypot(bot.x - zone.x, bot.y - zone.y);
+            if (dist > zone.radius) {
+              bot.hp = Math.max(0, bot.hp - damage);
+              if (bot.hp <= 0) {
+                // Add to kill feed
+                const newKill = { id: Date.now() + Math.random(), killer: "The Zone", victim: bot.name };
+                setKillFeed(prev => [newKill, ...prev].slice(0, 5));
+              }
+            }
+          }
+        });
       }
     }, 1000);
 
@@ -479,6 +540,8 @@ export default function App() {
           ammo: p.ammo,
           maxAmmo: WEAPONS[p.weapon]?.maxAmmo || 0,
           rank: getRankName(state.current.rankPoints),
+          playerPos: { x: p.x, y: p.y, angle: p.angle },
+          safeZone: { x: state.current.safeZone.x, y: state.current.safeZone.y, radius: state.current.safeZone.radius },
         }));
       }
     }, 100);
@@ -749,21 +812,47 @@ export default function App() {
     state.current.enemies.forEach(bot => {
       if (bot.hp <= 0) return;
 
-      const dx = p.x - bot.x;
-      const dy = p.y - bot.y;
-      const dist = Math.hypot(dx, dy);
+      // Find nearest target (Player or another Bot)
+      let target: { x: number, y: number, id: string, isAlive?: boolean } | null = null;
+      let minTargetDist = 200; // Aggro range
 
-      // Bot Normalization: Reduced aggro range and much lower speed
-      if (dist < 200 && p.isAlive) { 
-        const angleToPlayer = Math.atan2(dy, dx);
+      // Check Player
+      const distToPlayer = Math.hypot(p.x - bot.x, p.y - bot.y);
+      if (p.isAlive && distToPlayer < minTargetDist) {
+        target = p;
+        minTargetDist = distToPlayer;
+      }
+
+      // Check other Bots (only if player is not already the closest target within range)
+      // To prevent too much bot-on-bot violence too fast, we can make them less likely to target each other
+      if (!target || Math.random() < 0.1) {
+        state.current.enemies.forEach(other => {
+          if (other.id === bot.id || other.hp <= 0) return;
+          const d = Math.hypot(other.x - bot.x, other.y - bot.y);
+          if (d < minTargetDist) {
+            target = other;
+            minTargetDist = d;
+          }
+        });
+      }
+
+      if (target) {
+        const dx = target.x - bot.x;
+        const dy = target.y - bot.y;
+        const dist = Math.hypot(dx, dy);
+        const angleToTarget = Math.atan2(dy, dx);
+        
         // Normalize Bot: Even slower movement than before
-        bot.x += Math.cos(angleToPlayer) * 1.0; 
-        bot.y += Math.sin(angleToPlayer) * 1.0;
-        bot.angle = angleToPlayer;
+        bot.x += Math.cos(angleToTarget) * 1.0; 
+        bot.y += Math.sin(angleToTarget) * 1.0;
+        bot.angle = angleToTarget;
 
         const botWeapon = WEAPONS[bot.weapon];
         // Normalize Bot: Much slower fire rate (bots panic)
-        const shootDelayFactor = gameMode === 'rank' ? 5 : 8;
+        // Bot vs Bot fire rate is even slower to preserve player count
+        const isBotTarget = target.id !== "player";
+        const shootDelayFactor = gameMode === 'rank' ? (isBotTarget ? 10 : 5) : (isBotTarget ? 15 : 8);
+        
         if (now - bot.lastShoot > ((botWeapon?.fireRate || 300) * shootDelayFactor) && dist < 180) { 
           bot.lastShoot = now;
           
@@ -854,7 +943,8 @@ export default function App() {
       let hit = false;
       for (let j = 0; j < state.current.enemies.length; j++) {
         const enemy = state.current.enemies[j];
-        if (b.ownerId === "player" && enemy.hp > 0 && Math.hypot(b.x - enemy.x, b.y - enemy.y) < 28) {
+        // Bullet hits enemy if owner is player OR a different bot
+        if (b.ownerId !== enemy.id && enemy.hp > 0 && Math.hypot(b.x - enemy.x, b.y - enemy.y) < 28) {
           let damage = b.damage;
           if (enemy.armor > 0) {
             let armorBlock = Math.min(enemy.armor, damage * 0.5);
@@ -866,11 +956,15 @@ export default function App() {
           i--;
           hit = true;
           if (enemy.hp <= 0) {
-            p.kills++;
-            state.current.rankPoints += 15;
+            // Credit local player if they were the owner
+            if (b.ownerId === "player") {
+              p.kills++;
+              state.current.rankPoints += 15;
+            }
             
             // Add to kill feed
-            const newKill = { id: Date.now(), killer: p.name, victim: enemy.name };
+            const killerName = b.ownerId === "player" ? p.name : (state.current.enemies.find(e => e.id === b.ownerId)?.name || "Enemy");
+            const newKill = { id: Date.now(), killer: killerName, victim: enemy.name };
             setKillFeed(prev => [newKill, ...prev].slice(0, 5));
           }
           break;
@@ -899,10 +993,10 @@ export default function App() {
           
           // Add to kill feed
           const killer = state.current.enemies.find(e => e.id === b.ownerId);
-          const newKill = { id: Date.now(), killer: killer ? killer.name : "Enemy", victim: p.name };
+          const newKill = { id: Date.now() + Math.random(), killer: killer ? killer.name : "Enemy", victim: p.name };
           setKillFeed(prev => [newKill, ...prev].slice(0, 5));
           
-          triggerGameOver();
+          handlePlayerDeath();
         }
       }
     }
@@ -985,13 +1079,22 @@ export default function App() {
       ctx.fillStyle = '#1A1A1D';
     });
 
-    // Safe zone
-    const zonePos = worldToScreen(state.current.safeZone.x, state.current.safeZone.y);
-    ctx.beginPath();
-    ctx.arc(zonePos.x, zonePos.y, state.current.safeZone.radius, 0, Math.PI * 2);
-    ctx.strokeStyle = '#8E793E'; // accent-dim
-    ctx.lineWidth = 2;
-    ctx.stroke();
+    // Safe zone - only visible after 1 minute
+    if (state.current.matchTime >= 60) {
+      const zonePos = worldToScreen(state.current.safeZone.x, state.current.safeZone.y);
+      ctx.beginPath();
+      ctx.arc(zonePos.x, zonePos.y, state.current.safeZone.radius, 0, Math.PI * 2);
+      ctx.strokeStyle = '#D4AF37'; // accent-gold
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      
+      // Outside zone effect
+      ctx.beginPath();
+      ctx.arc(zonePos.x, zonePos.y, state.current.safeZone.radius, 0, Math.PI * 2);
+      ctx.rect(canvas.width, 0, -canvas.width, canvas.height);
+      ctx.fillStyle = 'rgba(212, 175, 55, 0.1)';
+      ctx.fill();
+    }
 
     // Vehicles
     state.current.vehicles.forEach(v => {
@@ -1366,39 +1469,57 @@ export default function App() {
   // --- Render ---
   return (
     <div className="w-full h-screen overflow-hidden bg-bg-deep text-text-primary font-sans select-none">
-      {screen === 'login' && (
-        <div className="fixed inset-0 bg-bg-deep flex justify-center items-center z-[200]">
-          <div className="bg-bg-card p-[40px_30px] text-center border border-border-dark w-[400px]">
-            <h1 className="text-[32px] text-accent-gold mb-2 font-serif italic tracking-[2px] uppercase">GTA Pixel</h1>
-            <div className="text-[10px] text-text-secondary uppercase tracking-[4px] mb-8">Aetheris Edition</div>
+      <AnimatePresence mode="wait">
+        {screen === 'login' && (
+          <motion.div 
+            key="login"
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 1.1 }}
+            className="fixed inset-0 bg-bg-deep flex justify-center items-center z-[200]"
+          >
+          <div className="bg-bg-card p-[60px_40px] text-center border border-accent-gold/20 w-[400px] rounded-[32px] shadow-[0_20px_60px_rgba(0,0,0,0.8)] relative overflow-hidden">
+            <div className="absolute top-0 left-0 w-full h-[6px] bg-gradient-to-r from-transparent via-accent-gold to-transparent"></div>
+            <h1 className="text-[36px] sm:text-[42px] text-white mb-2 font-black italic tracking-[3px] uppercase drop-shadow-[0_4px_12px_rgba(212,175,55,0.4)]">FIRESTRIKEx</h1>
+            <div className="text-[10px] text-accent-gold uppercase font-bold tracking-[6px] mb-12 opacity-80">Battle Foundation</div>
             
-            <input 
-              type="text" 
-              value={playerName}
-              onChange={(e) => setPlayerName(e.target.value)}
-              placeholder="Enter Username" 
-              maxLength={15}
-              className="w-full p-[15px] my-4 bg-bg-deep border border-border-dark text-text-primary text-[14px] outline-none text-center focus:border-accent-dim transition-colors"
-            />
+            <div className="relative mb-10 group">
+              <input 
+                type="text" 
+                value={playerName}
+                onChange={(e) => setPlayerName(e.target.value)}
+                placeholder="PLAYER IDENTITY" 
+                maxLength={15}
+                className="w-full p-[18px] bg-black/40 border border-white/10 text-white text-[14px] outline-none text-center rounded-[18px] focus:border-accent-gold transition-all duration-300 font-bold tracking-[2px] placeholder:opacity-30 group-focus-within:shadow-[0_0_20px_rgba(212,175,55,0.1)]"
+              />
+            </div>
             
             <button 
               onClick={goToLobby}
-              className="w-full p-[12px_30px] mt-4 text-[12px] font-bold bg-accent-gold border border-accent-gold text-bg-deep uppercase tracking-[2px] cursor-pointer hover:opacity-90 transition-opacity"
+              className="w-full p-[18px] bg-accent-gold text-bg-deep text-[16px] font-black uppercase tracking-[4px] cursor-pointer hover:brightness-110 active:scale-95 transition-all rounded-[20px] shadow-[0_10px_30px_rgba(212,175,55,0.3)] border-b-4 border-black/20"
             >
-              Login
+              IDENTITY CONFIRMED
             </button>
+            <div className="mt-8 text-[9px] text-white/20 uppercase tracking-[2px]">Secured Connection Established</div>
           </div>
-        </div>
+        </motion.div>
       )}
 
-      {screen === 'lobby' && (
-        <div className="fixed inset-0 bg-[#0a0a0c] flex flex-col z-[200] overflow-hidden touch-none" style={{
-          backgroundImage: 'radial-gradient(circle at 50% 50%, rgba(212, 175, 55, 0.05) 0%, transparent 60%), linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px)',
-          backgroundSize: '100% 100%, 40px 40px, 40px 40px'
-        }}>
+        {screen === 'lobby' && (
+          <motion.div 
+            key="lobby"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-[#0a0a0c] flex flex-col z-[200] overflow-hidden touch-none" 
+            style={{
+              backgroundImage: 'radial-gradient(circle at 50% 50%, rgba(212, 175, 55, 0.05) 0%, transparent 60%), linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px)',
+              backgroundSize: '100% 100%, 40px 40px, 40px 40px'
+            }}
+          >
           {/* Floating Title */}
-          <div className="absolute right-4 top-1/4 font-serif text-[32px] md:text-[48px] italic text-white/20 tracking-[4px] uppercase rotate-90 origin-right pointer-events-none whitespace-nowrap mix-blend-overlay">
-            GTA Pixel
+          <div className="absolute right-4 top-1/4 font-serif text-[32px] md:text-[48px] italic text-white/20 tracking-[6px] uppercase rotate-90 origin-right pointer-events-none whitespace-nowrap mix-blend-overlay">
+            FIRESTRIKEx
           </div>
 
           {/* Top Bar */}
@@ -1426,11 +1547,10 @@ export default function App() {
               </div>
             </div>
 
-            {/* Top Right: Icons */}
-            <div className="flex items-center gap-2 sm:gap-3 text-white/80 scale-75 sm:scale-90 md:scale-100 origin-right">
-              <Battery size={16} className="sm:w-[18px] sm:h-[18px]" />
-              <Wifi size={16} className="sm:w-[18px] sm:h-[18px]" />
-              <Settings size={16} className="sm:w-[18px] sm:h-[18px] cursor-pointer hover:text-white" onClick={() => setActiveModal('SETTINGS')} />
+            {/* Top Bar Logo Idea (Centerized Title) */}
+            <div className="absolute left-1/2 -translate-x-1/2 flex flex-col items-center">
+              <span className="text-white font-black text-[14px] sm:text-[18px] tracking-[3px] italic uppercase drop-shadow-[0_0_10px_rgba(212,175,55,0.5)]">FIRESTRIKEx</span>
+              <div className="h-0.5 w-[40px] bg-accent-gold rounded-full"></div>
             </div>
           </header>
 
@@ -1452,7 +1572,7 @@ export default function App() {
 
             {/* Center Character Card - Mobile Optimized */}
             <div className="w-[140px] h-[220px] sm:w-[200px] sm:h-[300px] md:w-[280px] md:h-[400px] max-h-[35vh] bg-gradient-to-b from-black/60 to-black/90 border border-accent-gold/30 rounded-xl p-1.5 relative pointer-events-auto backdrop-blur-md shadow-[0_0_30px_rgba(212,175,55,0.1)] flex flex-col items-center justify-end overflow-hidden group transition-transform hover:scale-105">
-              <div className="absolute inset-0 bg-[url('https://picsum.photos/seed/grandfire/300/450')] opacity-40 bg-cover bg-center mix-blend-overlay group-hover:opacity-60 transition-opacity"></div>
+              <div className="absolute inset-0 bg-[url('https://picsum.photos/seed/firestrike/300/450')] opacity-50 bg-cover bg-center mix-blend-overlay group-hover:opacity-60 transition-opacity"></div>
               <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent"></div>
               
               <div className="relative z-10 w-full text-center">
@@ -1545,102 +1665,155 @@ export default function App() {
               </button>
             </div>
           </div>
-        </div>
+        </motion.div>
       )}
 
       {/* Modal Overlay */}
-      {activeModal && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[500] backdrop-blur-sm">
-          <div className="bg-bg-card border border-accent-gold/50 p-8 rounded-xl max-w-[400px] w-full text-center shadow-[0_0_30px_rgba(212,175,55,0.15)]">
-            <h3 className="text-accent-gold font-serif text-[24px] uppercase tracking-[2px] mb-4">{activeModal}</h3>
-            <p className="text-text-secondary text-[14px] mb-8">This feature is currently under development. Check back later for updates!</p>
-            <button 
-              onClick={() => setActiveModal(null)}
-              className="px-8 py-2 bg-accent-gold text-black font-bold uppercase tracking-[2px] rounded hover:brightness-110 transition-all"
+      <AnimatePresence>
+        {activeModal && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/80 flex items-center justify-center z-[500] backdrop-blur-sm"
+          >
+            <motion.div 
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.9, y: 20 }}
+              className="bg-bg-card border border-accent-gold/50 p-8 rounded-xl max-w-[400px] w-full text-center shadow-[0_0_30px_rgba(212,175,55,0.15)]"
             >
-              Close
-            </button>
-          </div>
-        </div>
-      )}
+              <h3 className="text-accent-gold font-serif text-[24px] uppercase tracking-[2px] mb-4">{activeModal}</h3>
+              <p className="text-text-secondary text-[14px] mb-8">This feature is currently under development. Check back later for updates!</p>
+              <button 
+                onClick={() => setActiveModal(null)}
+                className="px-8 py-2 bg-accent-gold text-black font-bold uppercase tracking-[2px] rounded hover:brightness-110 transition-all"
+              >
+                Close
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {screen === 'matchmaking' && (
-        <div className="fixed inset-0 bg-bg-deep flex flex-col items-center justify-center z-[200]">
+        <motion.div 
+          key="matchmaking"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 bg-bg-deep flex flex-col items-center justify-center z-[200]"
+        >
           <div className="w-[60px] h-[60px] border-4 border-border-dark border-t-accent-gold rounded-full animate-spin mb-6"></div>
           <h2 className="text-[20px] text-accent-gold mb-1 font-serif italic uppercase tracking-[2px]">Matchmaking</h2>
           <div className="text-[12px] text-text-secondary uppercase tracking-[2px] mb-4">Searching for session...</div>
           <div className="font-serif text-[48px] text-text-primary mb-3">00:{matchTimer < 10 ? `0${matchTimer}` : matchTimer}</div>
           <div className="mt-4 text-white/30 text-[10px] uppercase tracking-widest animate-pulse">Wait for transition</div>
-        </div>
+        </motion.div>
       )}
 
-      {screen === 'drop_selection' && (
-        <div className="fixed inset-0 bg-bg-deep flex flex-col items-center justify-center z-[200] px-4 overflow-hidden">
-          {/* Header Area */}
-          <div className="flex flex-col items-center mb-6">
-            <h2 className="text-[20px] sm:text-[28px] text-accent-gold mb-1 font-serif italic uppercase tracking-[2px] drop-shadow-md">Select Drop Point</h2>
-            <div className="flex items-center gap-3 mb-2">
-              <div className="bg-black/60 px-3 py-1 rounded-full border border-white/10 flex items-center gap-2">
-                <Users size={14} className="text-accent-gold" />
-                <span className="text-[12px] sm:text-[14px] text-white font-black">{matchmakingPlayers.length + matchmakingBots.length} / 20</span>
-              </div>
-              <div className="text-[10px] sm:text-[12px] text-white/40 uppercase tracking-[1px]">Waiting for players</div>
-            </div>
-            
-            {/* Last Joined Notification Bubble */}
-            <div className={`transition-all duration-300 ${lastJoined ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'}`}>
-              <span className="text-[10px] bg-white/5 border border-white/10 px-3 py-0.5 rounded-full text-white/60">
-                <span className="text-accent-gold font-bold">{lastJoined || (matchmakingPlayers[matchmakingPlayers.length - 1])}</span> joined the session
-              </span>
-            </div>
-          </div>
-
-          {/* Map Container */}
-          <div className="relative flex flex-col items-center group">
-            <div 
-              className="w-[280px] h-[280px] sm:w-[380px] sm:h-[380px] bg-[#1a3324] border-[3px] border-accent-gold/30 relative cursor-crosshair overflow-hidden rounded-xl shadow-[0_0_50px_rgba(0,0,0,0.6)] transition-all group-hover:border-accent-gold/60"
-              onClick={handleMapClick}
-            >
-              <svg width="400" height="400" viewBox={`0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`} className="absolute inset-0 pointer-events-none opacity-80">
-                {ROADS.map((r, i) => (
-                  <rect key={`road-${i}`} x={r.x} y={r.y} width={r.w} height={r.h} fill="#232326" />
-                ))}
-                {BUILDINGS.map((b, i) => (
-                  <rect key={`bldg-${i}`} x={b.x} y={b.y} width={b.w} height={b.h} fill="#121214" stroke="#252529" strokeWidth="2" />
-                ))}
-                {TREES.map((t, i) => (
-                  <circle key={`tree-${i}`} cx={t.x} cy={t.y} r="25" fill="#081c13" />
-                ))}
-              </svg>
-
-              {/* Scanline Effect */}
-              <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-transparent via-white/5 to-transparent h-[50%] animate-scanline" />
-
-              {/* Marker */}
-              <div 
-                className="absolute w-8 h-8 border-4 border-white rounded-full transform -translate-x-1/2 -translate-y-1/2 flex items-center justify-center pointer-events-none transition-all duration-200"
-                style={{ left: `${(dropPoint.x / MAP_WIDTH) * 100}%`, top: `${(dropPoint.y / MAP_HEIGHT) * 100}%` }}
+        {screen === 'drop_selection' && (
+          <motion.div 
+            key="drop_selection"
+            initial={{ opacity: 0, x: 50 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -50 }}
+            className="fixed inset-0 bg-bg-deep flex flex-col items-center justify-center z-[200] px-4 overflow-hidden"
+          >
+            {/* Top Right DROP button */}
+            <div className="fixed top-4 right-4 z-[300]">
+              <motion.button 
+                whileTap={{ scale: 0.9 }}
+                onClick={() => { setDropTimer(0); startGame(); }}
+                className="px-6 py-2 bg-accent-gold text-bg-deep font-black uppercase tracking-[2px] rounded-full shadow-[0_5px_15px_rgba(212,175,55,0.4)] border-b-2 border-black/20"
               >
-                <div className="absolute inset-0 bg-white/30 rounded-full animate-ping"></div>
-                <div className="w-2.5 h-2.5 bg-white rounded-full shadow-[0_0_10px_white]"></div>
+                DROP
+              </motion.button>
+            </div>
+
+            <div className="flex flex-col items-center justify-center w-full max-w-[400px]">
+              {/* Header Area */}
+              <div className="flex flex-col items-center mb-4 shrink-0">
+                <h2 className="text-[18px] sm:text-[24px] text-accent-gold mb-1 font-serif italic uppercase tracking-[2px] drop-shadow-md">
+                  {isRespawning ? 'Respawn Drop' : 'Select Drop Point'}
+                </h2>
+                <div className="flex items-center gap-3 mb-1">
+                  <div className="bg-black/60 px-3 py-1 rounded-full border border-white/10 flex items-center gap-2">
+                    <Users size={12} className="text-accent-gold" />
+                    <span className="text-[11px] sm:text-[13px] text-white font-black">{matchmakingPlayers.length + matchmakingBots.length} / 20</span>
+                  </div>
+                  <div className="text-[9px] sm:text-[11px] text-white/40 uppercase tracking-[1px]">{isRespawning ? 'Respawning' : 'Players joining'}</div>
+                </div>
+                
+                {/* Last Joined Notification Bubble */}
+                {!isRespawning && (
+                  <div className={`transition-all duration-300 h-5 ${lastJoined ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-1'}`}>
+                    <span className="text-[9px] bg-white/5 border border-white/10 px-2.5 py-0.5 rounded-full text-white/50">
+                      <span className="text-accent-gold font-bold">{lastJoined}</span> joined
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Map Container - Smallest for mobile to avoid scroll */}
+              <div className="relative flex flex-col items-center group shrink-0">
+                <div 
+                  className="w-[130px] h-[130px] sm:w-[280px] sm:h-[280px] bg-[#1e3d2b] border-[3px] border-accent-gold/40 relative cursor-crosshair overflow-hidden rounded-xl shadow-[0_10px_40px_rgba(0,0,0,0.8)] transition-all"
+                  onClick={handleMapClick}
+                >
+                  <svg width="400" height="400" viewBox={`0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`} className="absolute inset-0 pointer-events-none">
+                    {/* Lush Ground Pattern */}
+                    <rect x="0" y="0" width={MAP_WIDTH} height={MAP_HEIGHT} fill="#1e3d2b" />
+                    
+                    {ROADS.map((r, i) => (
+                      <rect key={`road-${i}`} x={r.x} y={r.y} width={r.w} height={r.h} fill="#2a2a2e" />
+                    ))}
+                    {BUILDINGS.map((b, i) => (
+                      <rect key={`bldg-${i}`} x={b.x} y={b.y} width={b.w} height={b.h} fill="#151517" stroke="#252529" strokeWidth="2" />
+                    ))}
+                    {TREES.map((t, i) => (
+                      <circle key={`tree-${i}`} cx={t.x} cy={t.y} r="25" fill="#0D2B1D" />
+                    ))}
+
+                    {/* Landmark Labels */}
+                    <text x="600" y="800" fill="white" fontSize="150" opacity="0.15" fontWeight="900" textAnchor="middle" style={{ fontFamily: 'serif', fontStyle: 'italic' }}>OBSERVATORY</text>
+                    <text x="2400" y="800" fill="white" fontSize="150" opacity="0.15" fontWeight="900" textAnchor="middle" style={{ fontFamily: 'serif', fontStyle: 'italic' }}>HANGAR</text>
+                    <text x="800" y="2400" fill="white" fontSize="150" opacity="0.15" fontWeight="900" textAnchor="middle" style={{ fontFamily: 'serif', fontStyle: 'italic' }}>CLOCK TOWER</text>
+                    <text x="2200" y="2200" fill="white" fontSize="150" opacity="0.15" fontWeight="900" textAnchor="middle" style={{ fontFamily: 'serif', fontStyle: 'italic' }}>MILL</text>
+                    <text x="1500" y="1500" fill="white" fontSize="200" opacity="0.2" fontWeight="900" textAnchor="middle" style={{ fontFamily: 'serif', fontStyle: 'italic' }}>PEAK</text>
+                  </svg>
+
+                  {/* Scanline Effect */}
+                  <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-transparent via-white/5 to-transparent h-[40%] animate-scanline" />
+
+                  {/* Marker */}
+                  <div 
+                    className="absolute w-6 h-6 sm:w-8 sm:h-8 border-[2px] sm:border-4 border-white rounded-full transform -translate-x-1/2 -translate-y-1/2 flex items-center justify-center pointer-events-none transition-all duration-200"
+                    style={{ left: `${(dropPoint.x / MAP_WIDTH) * 100}%`, top: `${(dropPoint.y / MAP_HEIGHT) * 100}%` }}
+                  >
+                    <div className="absolute inset-0 bg-white/30 rounded-full animate-ping"></div>
+                    <div className="w-2 h-2 sm:w-2.5 sm:h-2.5 bg-white rounded-full shadow-[0_0_10px_white]"></div>
+                  </div>
+                </div>
+
+                {/* Timer Overlay */}
+                <div className="absolute -top-2 -right-2 w-10 h-10 sm:w-16 sm:h-16 bg-bg-deep border-[2px] border-accent-gold rounded-full flex flex-col items-center justify-center shadow-2xl z-20">
+                  <span className="text-[7px] sm:text-[10px] text-accent-gold uppercase font-black leading-none">SEC</span>
+                  <span className="text-[14px] sm:text-[20px] text-white font-serif font-black leading-none">{dropTimer}</span>
+                </div>
+
+                {isRespawning && (
+                  <div className="mt-4 text-[12px] text-red-500 font-bold animate-pulse uppercase tracking-[2px]">
+                    Respawn Available
+                  </div>
+                )}
+                
+                <div className="mt-6 text-white/30 text-[9px] uppercase tracking-widest font-bold">Touch Map to Aim</div>
               </div>
             </div>
-
-            {/* Floating Timer */}
-            <div className="absolute -top-4 -right-4 w-16 h-16 bg-bg-deep border-2 border-accent-gold rounded-full flex flex-col items-center justify-center shadow-xl z-10">
-              <span className="text-[10px] text-accent-gold uppercase font-black leading-none">Sec</span>
-              <span className="text-[20px] text-white font-serif font-black leading-none">{dropTimer}</span>
-            </div>
-
-            <button 
-              onClick={() => { setDropTimer(0); startGame(); }}
-              className="mt-8 px-12 py-3 bg-accent-gold text-bg-deep text-[14px] font-black uppercase tracking-[3px] rounded-lg shadow-[0_10px_30px_rgba(212,175,55,0.3)] hover:scale-105 active:scale-95 transition-all border-b-4 border-black/20"
-            >
-              Confirm Drop
-            </button>
-          </div>
-        </div>
-      )}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {screen === 'game' && (
         <div className="fixed inset-0 bg-black z-[300] touch-none overflow-hidden">
@@ -1648,6 +1821,59 @@ export default function App() {
             ref={canvasRef}
             className="block w-full h-full"
           />
+
+          {/* MiniMap Overlay */}
+          <div className="absolute top-4 left-4 w-[90px] h-[90px] sm:w-[130px] sm:h-[130px] bg-black/70 border-2 border-white/10 rounded-lg overflow-hidden backdrop-blur-md z-[350] shadow-2xl">
+            <div className="relative w-full h-full">
+              <svg 
+                viewBox={`0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`} 
+                className="w-full h-full transition-transform duration-100 ease-out"
+                style={{
+                  transform: `scale(5) translate(${-(hud.playerPos.x/MAP_WIDTH)*100 + 10}%, ${-(hud.playerPos.y/MAP_HEIGHT)*100 + 10}%)`
+                }}
+              >
+                <rect x="0" y="0" width={MAP_WIDTH} height={MAP_HEIGHT} fill="#1e3d2b" />
+                {ROADS.map((r, i) => (
+                  <rect key={`mini-road-${i}`} x={r.x} y={r.y} width={r.w} height={r.h} fill="#2a2a2e" />
+                ))}
+                {BUILDINGS.map((b, i) => (
+                  <rect key={`mini-bldg-${i}`} x={b.x} y={b.y} width={b.w} height={b.h} fill="#151517" />
+                ))}
+                
+                {/* Safe Zone on MiniMap */}
+                {state.current.matchTime >= 60 && (
+                  <circle 
+                    cx={hud.safeZone.x} 
+                    cy={hud.safeZone.y} 
+                    r={hud.safeZone.radius} 
+                    fill="transparent" 
+                    stroke="rgba(255,255,255,0.4)" 
+                    strokeWidth="15"
+                    strokeDasharray="30,30"
+                  />
+                )}
+                
+                {/* Enemies on MiniMap - Radar feel */}
+                {state.current.enemies.map(e => (
+                  e.hp > 0 && Math.hypot(e.x - hud.playerPos.x, e.y - hud.playerPos.y) < 500 && (
+                    <circle key={`radar-${e.id}`} cx={e.x} cy={e.y} r="15" fill="#ff4444" className="animate-pulse" />
+                  )
+                ))}
+
+                {/* Player Navigation Arrow */}
+                <g transform={`translate(${hud.playerPos.x}, ${hud.playerPos.y}) rotate(${hud.playerPos.angle * 180 / Math.PI})`}>
+                  <path d="M -20, -20 L 30, 0 L -20, 20 Z" fill="#FFD700" stroke="#000" strokeWidth="3" />
+                </g>
+              </svg>
+              
+              {/* Overlay HUD elements for MiniMap */}
+              <div className="absolute inset-0 pointer-events-none ring-1 ring-inset ring-white/20">
+                <div className="absolute top-1 left-1.5 text-[7px] text-white/40 font-black tracking-tighter uppercase">GPS Signal</div>
+                {/* Scanning Effect */}
+                <div className="absolute inset-0 bg-gradient-to-b from-transparent via-accent-gold/5 to-transparent h-[20%] w-full animate-scanline opacity-30" />
+              </div>
+            </div>
+          </div>
 
           {/* Mobile Controls Overlay */}
           <div className="absolute inset-0 pointer-events-none z-[300] touch-none">
