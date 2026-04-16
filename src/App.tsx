@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Settings, Mail, Battery, Wifi, MessageSquare, Users, Crosshair, User, Beaker, Zap, Shield, Activity, Luggage, Skull, Sword, Map, Target } from 'lucide-react';
+import { Settings, Mail, Battery, Wifi, MessageSquare, Users, Crosshair, User, Beaker, Zap, Shield, Activity, Luggage, Skull, Sword, Map, Target, CloudRain } from 'lucide-react';
 import { ref, set, onValue, get } from 'firebase/database';
 import { db } from './firebase';
 
@@ -140,7 +140,7 @@ export default function App() {
   const [matchmakingPlayers, setMatchmakingPlayers] = useState<string[]>([]);
   const [matchmakingBots, setMatchmakingBots] = useState<string[]>([]);
   const [lastJoined, setLastJoined] = useState<string>('');
-  const [killFeed, setKillFeed] = useState<{ id: number, killer: string, victim: string }[]>([]);
+  const [killFeed, setKillFeed] = useState<{ id: number, killer: string, victim: string, weapon?: string }[]>([]);
   
   // Joystick Refs
   const leftJoyRef = useRef({ active: false, x: 0, y: 0, originX: 0, originY: 0, dirX: 0, dirY: 0, identifier: -1 });
@@ -502,7 +502,7 @@ export default function App() {
               bot.hp = Math.max(0, bot.hp - damage);
               if (bot.hp <= 0) {
                 // Add to kill feed
-                const newKill = { id: Date.now() + Math.random(), killer: "The Zone", victim: bot.name };
+                const newKill = { id: Date.now() + Math.random(), killer: "The Zone", victim: bot.name, weapon: "environment" };
                 setKillFeed(prev => [newKill, ...prev].slice(0, 5));
               }
             }
@@ -964,7 +964,7 @@ export default function App() {
             
             // Add to kill feed
             const killerName = b.ownerId === "player" ? p.name : (state.current.enemies.find(e => e.id === b.ownerId)?.name || "Enemy");
-            const newKill = { id: Date.now(), killer: killerName, victim: enemy.name };
+            const newKill = { id: Date.now() + Math.random(), killer: killerName, victim: enemy.name, weapon: b.type };
             setKillFeed(prev => [newKill, ...prev].slice(0, 5));
           }
           break;
@@ -993,7 +993,7 @@ export default function App() {
           
           // Add to kill feed
           const killer = state.current.enemies.find(e => e.id === b.ownerId);
-          const newKill = { id: Date.now() + Math.random(), killer: killer ? killer.name : "Enemy", victim: p.name };
+          const newKill = { id: Date.now() + Math.random(), killer: killer ? killer.name : "Enemy", victim: p.name, weapon: b.type };
           setKillFeed(prev => [newKill, ...prev].slice(0, 5));
           
           handlePlayerDeath();
@@ -1762,25 +1762,38 @@ export default function App() {
                   onClick={handleMapClick}
                 >
                   <svg width="400" height="400" viewBox={`0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`} className="absolute inset-0 pointer-events-none">
-                    {/* Lush Ground Pattern */}
+                    {/* Lush Ground Pattern with slight texture */}
                     <rect x="0" y="0" width={MAP_WIDTH} height={MAP_HEIGHT} fill="#1e3d2b" />
+                    <defs>
+                      <radialGradient id="landGrad" cx="50%" cy="50%" r="50%">
+                        <stop offset="0%" stopColor="#254a34" />
+                        <stop offset="100%" stopColor="#1e3d2b" />
+                      </radialGradient>
+                    </defs>
+                    <rect x="0" y="0" width={MAP_WIDTH} height={MAP_HEIGHT} fill="url(#landGrad)" />
                     
                     {ROADS.map((r, i) => (
-                      <rect key={`road-${i}`} x={r.x} y={r.y} width={r.w} height={r.h} fill="#2a2a2e" />
+                      <rect key={`road-${i}`} x={r.x} y={r.y} width={r.w} height={r.h} fill="#2a2a2e" opacity="0.9" />
                     ))}
                     {BUILDINGS.map((b, i) => (
-                      <rect key={`bldg-${i}`} x={b.x} y={b.y} width={b.w} height={b.h} fill="#151517" stroke="#252529" strokeWidth="2" />
+                      <rect key={`bldg-${i}`} x={b.x} y={b.y} width={b.w} height={b.h} fill="#151517" stroke="#3a3a3e" strokeWidth="3" />
                     ))}
                     {TREES.map((t, i) => (
-                      <circle key={`tree-${i}`} cx={t.x} cy={t.y} r="25" fill="#0D2B1D" />
+                      <circle key={`tree-${i}`} cx={t.x} cy={t.y} r="30" fill="#0D2B1D" stroke="#153625" strokeWidth="2" />
                     ))}
 
-                    {/* Landmark Labels */}
-                    <text x="600" y="800" fill="white" fontSize="150" opacity="0.15" fontWeight="900" textAnchor="middle" style={{ fontFamily: 'serif', fontStyle: 'italic' }}>OBSERVATORY</text>
-                    <text x="2400" y="800" fill="white" fontSize="150" opacity="0.15" fontWeight="900" textAnchor="middle" style={{ fontFamily: 'serif', fontStyle: 'italic' }}>HANGAR</text>
-                    <text x="800" y="2400" fill="white" fontSize="150" opacity="0.15" fontWeight="900" textAnchor="middle" style={{ fontFamily: 'serif', fontStyle: 'italic' }}>CLOCK TOWER</text>
-                    <text x="2200" y="2200" fill="white" fontSize="150" opacity="0.15" fontWeight="900" textAnchor="middle" style={{ fontFamily: 'serif', fontStyle: 'italic' }}>MILL</text>
-                    <text x="1500" y="1500" fill="white" fontSize="200" opacity="0.2" fontWeight="900" textAnchor="middle" style={{ fontFamily: 'serif', fontStyle: 'italic' }}>PEAK</text>
+                    {/* Highly Stylized Landmark Labels (Zone specific) */}
+                    <g opacity="0.2">
+                      <text x="700" y="700" fill="white" fontSize="140" fontWeight="900" textAnchor="middle" style={{ fontStyle: 'italic', letterSpacing: '4px' }}>AERODROME</text>
+                      <text x="2400" y="700" fill="white" fontSize="140" fontWeight="900" textAnchor="middle" style={{ fontStyle: 'italic', letterSpacing: '4px' }}>FORGE</text>
+                      <text x="700" y="2400" fill="white" fontSize="140" fontWeight="900" textAnchor="middle" style={{ fontStyle: 'italic', letterSpacing: '4px' }}>CATHEDRAL</text>
+                      <text x="2400" y="2400" fill="white" fontSize="140" fontWeight="900" textAnchor="middle" style={{ fontStyle: 'italic', letterSpacing: '4px' }}>ESTATE</text>
+                      <text x="1500" y="1500" fill="white" fontSize="180" fontWeight="900" textAnchor="middle" style={{ fontStyle: 'italic', letterSpacing: '8px' }}>CENTRAL PEAK</text>
+                    </g>
+
+                    {/* Grid lines for "Real Map" feel */}
+                    <path d={`M ${MAP_WIDTH/2} 0 V ${MAP_HEIGHT}`} stroke="white" strokeWidth="2" opacity="0.05" />
+                    <path d={`M 0 ${MAP_HEIGHT/2} H ${MAP_WIDTH}`} stroke="white" strokeWidth="2" opacity="0.05" />
                   </svg>
 
                   {/* Scanline Effect */}
@@ -1987,15 +2000,37 @@ export default function App() {
                </div>
             </div>
 
-            {/* Kill Feed - Moved Left Side */}
-            <div className="absolute top-[140px] left-2 flex flex-col gap-1 pointer-events-none">
-              {killFeed.map(k => (
-                <div key={k.id} className="bg-black/40 border-l-2 border-accent-gold px-2 py-0.5 flex items-center gap-2 animate-fade-in text-[9px] text-white backdrop-blur-sm">
-                  <span className="text-accent-gold font-bold">{k.killer}</span>
-                  <Sword size={8} className="text-white/40" />
-                  <span>{k.victim}</span>
-                </div>
-              ))}
+            {/* Kill Feed - Professional Battle Royale Style */}
+            <div className="absolute top-[80px] left-4 flex flex-col gap-2 pointer-events-none">
+              <AnimatePresence>
+                {killFeed.map((k, i) => (
+                  <motion.div 
+                    key={k.id}
+                    initial={{ opacity: 0, x: -20, scale: 0.9 }}
+                    animate={{ opacity: 1, x: 0, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.8 }}
+                    className="flex items-center gap-2"
+                  >
+                    {/* Dark translucent background with sleek border */}
+                    <div className="bg-black/80 ring-1 ring-white/10 px-3 py-1 rounded flex items-center gap-3 shadow-xl backdrop-blur-md">
+                      <span className={`font-black uppercase tracking-[1px] text-[10px] ${k.killer === playerData.username ? 'text-accent-gold' : 'text-white'}`}>
+                        {k.killer}
+                      </span>
+                      
+                      <div className="bg-white/10 p-1 rounded-sm">
+                        {k.weapon === 'sniper' ? <Target size={12} className="text-accent-gold" /> :
+                         k.weapon === 'shotgun' ? <Zap size={12} className="text-accent-gold" /> :
+                         k.weapon === 'environment' ? <CloudRain size={12} className="text-white/40" /> :
+                         <Sword size={12} className="text-accent-gold" />}
+                      </div>
+
+                      <span className="text-white/90 font-bold uppercase tracking-[1px] text-[10px]">
+                        {k.victim}
+                      </span>
+                    </div>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
             </div>
 
             {/* Weapon Panel - Bottom Right Area above Joystick */}
