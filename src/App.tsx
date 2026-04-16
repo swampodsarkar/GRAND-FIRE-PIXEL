@@ -1323,7 +1323,7 @@ export default function App() {
       {screen === 'login' && (
         <div className="fixed inset-0 bg-bg-deep flex justify-center items-center z-[200]">
           <div className="bg-bg-card p-[40px_30px] text-center border border-border-dark w-[400px]">
-            <h1 className="text-[32px] text-accent-gold mb-2 font-serif italic tracking-[2px] uppercase">Grand Fire Pixel Games</h1>
+            <h1 className="text-[32px] text-accent-gold mb-2 font-serif italic tracking-[2px] uppercase">GTA Pixel</h1>
             <div className="text-[10px] text-text-secondary uppercase tracking-[4px] mb-8">Aetheris Edition</div>
             
             <input 
@@ -1352,7 +1352,7 @@ export default function App() {
         }}>
           {/* Floating Title */}
           <div className="absolute right-4 top-1/4 font-serif text-[32px] md:text-[48px] italic text-white/20 tracking-[4px] uppercase rotate-90 origin-right pointer-events-none whitespace-nowrap mix-blend-overlay">
-            Grand Fire Pixel Games
+            GTA Pixel
           </div>
 
           {/* Top Bar */}
@@ -1611,7 +1611,7 @@ export default function App() {
             {/* HUD Top - Header Style */}
             <header className="absolute top-0 left-0 right-0 h-[50px] md:h-[70px] bg-bg-card/80 backdrop-blur-sm border-b border-border-dark flex items-center justify-between px-4 md:px-10 z-[350] pointer-events-none">
               <div className="font-serif text-[16px] md:text-[24px] italic text-accent-gold tracking-[2px] uppercase">
-                Grand Fire Pixel Games
+                GTA Pixel
               </div>
             
             {/* Kill Feed */}
