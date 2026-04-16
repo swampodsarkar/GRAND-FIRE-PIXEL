@@ -1,0 +1,41 @@
+@import "tailwindcss";
+
+@theme {
+  --animate-booyah: booyah 1s ease-out forwards;
+
+  --color-bg-deep: #0A0A0B;
+  --color-bg-card: #151517;
+  --color-accent-gold: #D4AF37;
+  --color-accent-dim: #8E793E;
+  --color-text-primary: #E0DED7;
+  --color-text-secondary: #99958F;
+  --color-border-dark: #2A2A2D;
+
+  --font-serif: 'Georgia', serif;
+  --font-sans: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+
+  @keyframes booyah {
+    0% {
+      transform: translate(-50%, -50%) scale(0);
+      opacity: 0;
+    }
+    50% {
+      transform: translate(-50%, -50%) scale(1.5);
+      opacity: 1;
+    }
+    100% {
+      transform: translate(-50%, -50%) scale(1);
+      opacity: 1;
+    }
+  }
+}
+
+body {
+  background-color: var(--color-bg-deep);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  touch-action: none; /* Prevent default touch actions for mobile game */
+}
