@@ -2,6 +2,7 @@
 
 @theme {
   --animate-booyah: booyah 1s ease-out forwards;
+  --animate-scanline: scanline 4s linear infinite;
 
   --color-bg-deep: #0A0A0B;
   --color-bg-card: #151517;
@@ -13,6 +14,11 @@
 
   --font-serif: 'Georgia', serif;
   --font-sans: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+
+  @keyframes scanline {
+    0% { transform: translateY(-100%); }
+    100% { transform: translateY(200%); }
+  }
 
   @keyframes booyah {
     0% {

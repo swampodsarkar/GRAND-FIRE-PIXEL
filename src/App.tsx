@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Settings, Mail, Battery, Wifi, MessageSquare, Users, Crosshair, User, Beaker, Zap } from 'lucide-react';
+import { Settings, Mail, Battery, Wifi, MessageSquare, Users, Crosshair, User, Beaker, Zap, Shield, Activity, Luggage, Skull, Sword, Map, Target } from 'lucide-react';
 import { ref, set, onValue, get } from 'firebase/database';
 import { db } from './firebase';
 
@@ -126,7 +126,9 @@ export default function App() {
   // --- UI State ---
   const [screen, setScreen] = useState<'login' | 'lobby' | 'matchmaking' | 'drop_selection' | 'game'>('login');
   const [playerName, setPlayerName] = useState('');
-  const [mode, setMode] = useState('solo');
+  const [showModeSelect, setShowModeSelect] = useState(false);
+  const [matchType] = useState<'solo'>('solo');
+  const [gameMode, setGameMode] = useState<'classic' | 'rank'>('classic');
   const [character, setCharacter] = useState('kelly');
   const [matchTimer, setMatchTimer] = useState(30);
   const [dropPoint, setDropPoint] = useState({ x: 1500, y: 1500 });
@@ -134,6 +136,8 @@ export default function App() {
   const [dropTimer, setDropTimer] = useState(10);
   const [activeModal, setActiveModal] = useState<string | null>(null);
   const [matchmakingPlayers, setMatchmakingPlayers] = useState<string[]>([]);
+  const [matchmakingBots, setMatchmakingBots] = useState<string[]>([]);
+  const [lastJoined, setLastJoined] = useState<string>('');
   const [killFeed, setKillFeed] = useState<{ id: number, killer: string, victim: string }[]>([]);
   
   // Joystick Refs
@@ -236,6 +240,7 @@ export default function App() {
   const startMatchmaking = () => {
     setScreen('matchmaking');
     setMatchTimer(30);
+    setMatchmakingBots([]);
     
     // Join matchmaking queue
     const matchRef = ref(db, 'matchmaking/' + playerName);
@@ -261,18 +266,43 @@ export default function App() {
           if (prev <= 1) {
             clearInterval(interval);
             setScreen('drop_selection');
-            setDropTimer(10);
+            setDropTimer(15);
             return 0;
           }
           return prev - 1;
         });
       }, 1000);
     } else if (screen === 'drop_selection') {
+      const botPool = ["Ranger", "Scout", "Sniper", "Medic", "Heavy", "Assault", "Recon", "Warrior", "Phantom", "Ghost", "Shadow", "Hunter", "Viper", "Wolf", "Hawk", "Eagle", "Falcon", "Cobra", "Dragon", "Titan"];
+      
       interval = setInterval(() => {
+        const totalCount = matchmakingPlayers.length + matchmakingBots.length;
+        
+        // Trigger: If 2 or more real players join, start 10s countdown
+        if (matchmakingPlayers.length >= 2 && dropTimer > 10) {
+          setDropTimer(10);
+        }
+
+        if (totalCount < 20) {
+          // Add bots rapidly
+          setMatchmakingBots(prev => {
+            if (prev.length + matchmakingPlayers.length < 20) {
+              const nextBot = botPool[prev.length % botPool.length];
+              if (!prev.includes(nextBot)) {
+                setLastJoined(nextBot);
+                // Clear notification after 1.5s
+                setTimeout(() => setLastJoined(''), 1500);
+                return [...prev, nextBot];
+              }
+            }
+            return prev;
+          });
+        }
+        
         setDropTimer(prev => {
           if (prev <= 1) {
             clearInterval(interval);
-            startGame();
+            setTimeout(startGame, 500);
             return 0;
           }
           return prev - 1;
@@ -280,7 +310,7 @@ export default function App() {
       }, 1000);
     }
     return () => clearInterval(interval);
-  }, [screen]);
+  }, [screen, matchmakingPlayers.length]);
 
   const handleMapClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -723,23 +753,32 @@ export default function App() {
       const dy = p.y - bot.y;
       const dist = Math.hypot(dx, dy);
 
-      if (dist < 250 && p.isAlive) { // Reduced aggro range
+      // Bot Normalization: Reduced aggro range and much lower speed
+      if (dist < 200 && p.isAlive) { 
         const angleToPlayer = Math.atan2(dy, dx);
-        bot.x += Math.cos(angleToPlayer) * 1.5; // Slower movement
-        bot.y += Math.sin(angleToPlayer) * 1.5;
+        // Normalize Bot: Even slower movement than before
+        bot.x += Math.cos(angleToPlayer) * 1.0; 
+        bot.y += Math.sin(angleToPlayer) * 1.0;
         bot.angle = angleToPlayer;
 
         const botWeapon = WEAPONS[bot.weapon];
-        if (now - bot.lastShoot > ((botWeapon?.fireRate || 300) * 4) && dist < 200) { // Shoot less often, closer range
+        // Normalize Bot: Much slower fire rate (bots panic)
+        const shootDelayFactor = gameMode === 'rank' ? 5 : 8;
+        if (now - bot.lastShoot > ((botWeapon?.fireRate || 300) * shootDelayFactor) && dist < 180) { 
           bot.lastShoot = now;
+          
+          // Normalize Bot: Add inaccuracy/randomness to bullet path
+          const inaccuracy = (Math.random() - 0.5) * 0.3; // Quite inaccurate
+          const shotAngle = bot.angle + inaccuracy;
+
           state.current.bullets.push({
             id: Date.now() + "_bot_" + Math.random(),
-            x: bot.x + Math.cos(bot.angle) * 30,
-            y: bot.y + Math.sin(bot.angle) * 30,
-            dx: Math.cos(bot.angle) * 12,
-            dy: Math.sin(bot.angle) * 12,
+            x: bot.x + Math.cos(shotAngle) * 30,
+            y: bot.y + Math.sin(shotAngle) * 30,
+            dx: Math.cos(shotAngle) * 12,
+            dy: Math.sin(shotAngle) * 12,
             ownerId: bot.id,
-            damage: botWeapon?.damage || 20
+            damage: (botWeapon?.damage || 20) * (gameMode === 'classic' ? 0.7 : 0.9) // Lower damage in classic
           });
         }
       } else {
@@ -884,8 +923,8 @@ export default function App() {
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Ground
-    ctx.fillStyle = '#0A0A0B'; // bg-deep
+    // Ground - Lush Green
+    ctx.fillStyle = '#1e3d2b'; 
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     const worldToScreen = (x: number, y: number) => ({
@@ -893,13 +932,20 @@ export default function App() {
       y: y - state.current.camera.y
     });
 
+    // Terrain Details (Optional: add some speckles for texture)
+    ctx.fillStyle = '#1b3827';
+    for(let i=0; i<500; i++) {
+       // Simple hash-based speckles based on world coords would be better but let's just do static positions relative to camera
+       // for better static feel.
+    }
+
     // Roads
-    ctx.fillStyle = '#151517';
+    ctx.fillStyle = '#2a2a2e';
     ROADS.forEach(r => {
       const pos = worldToScreen(r.x, r.y);
       ctx.fillRect(pos.x, pos.y, r.w, r.h);
       // Road markings
-      ctx.strokeStyle = '#333';
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
       ctx.setLineDash([20, 20]);
       ctx.beginPath();
       if (r.w > r.h) {
@@ -1356,10 +1402,10 @@ export default function App() {
           </div>
 
           {/* Top Bar */}
-          <header className="h-[40px] sm:h-[60px] flex items-center justify-between px-2 md:px-4 shrink-0 mt-2 z-20">
+          <header className="h-[35px] sm:h-[50px] flex items-center justify-between px-2 md:px-4 shrink-0 mt-1 z-20">
             {/* Top Left: Profile */}
-            <div className="flex items-center gap-2 bg-black/40 pr-3 rounded-full border border-white/10 backdrop-blur-sm scale-75 sm:scale-90 md:scale-100 origin-left">
-              <div className="w-8 h-8 sm:w-10 sm:h-10 bg-accent-dim rounded-full flex items-center justify-center font-serif text-white text-[14px] sm:text-[18px] border-2 border-accent-gold shadow-[0_0_10px_rgba(212,175,55,0.5)]">
+            <div className="flex items-center gap-1 bg-black/40 pr-2 rounded-full border border-white/10 backdrop-blur-sm scale-75 sm:scale-85 md:scale-100 origin-left">
+              <div className="w-7 h-7 sm:w-9 sm:h-9 bg-accent-dim rounded-full flex items-center justify-center font-serif text-white text-[12px] sm:text-[16px] border-2 border-accent-gold shadow-[0_0_8px_rgba(212,175,55,0.5)]">
                 {playerName ? playerName[0].toUpperCase() : 'U'}
               </div>
               <div className="flex flex-col">
@@ -1405,79 +1451,97 @@ export default function App() {
             </div>
 
             {/* Center Character Card - Mobile Optimized */}
-            <div className="w-[200px] h-[300px] sm:w-[260px] sm:h-[380px] md:w-[320px] md:h-[480px] max-h-[50vh] bg-gradient-to-b from-black/60 to-black/90 border border-accent-gold/30 rounded-xl p-3 relative pointer-events-auto backdrop-blur-md shadow-[0_0_50px_rgba(212,175,55,0.15)] flex flex-col items-center justify-end overflow-hidden group transition-transform hover:scale-105">
-              <div className="absolute inset-0 bg-[url('https://picsum.photos/seed/grandfire/300/450')] opacity-50 bg-cover bg-center mix-blend-overlay group-hover:opacity-70 transition-opacity"></div>
-              <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent"></div>
+            <div className="w-[140px] h-[220px] sm:w-[200px] sm:h-[300px] md:w-[280px] md:h-[400px] max-h-[35vh] bg-gradient-to-b from-black/60 to-black/90 border border-accent-gold/30 rounded-xl p-1.5 relative pointer-events-auto backdrop-blur-md shadow-[0_0_30px_rgba(212,175,55,0.1)] flex flex-col items-center justify-end overflow-hidden group transition-transform hover:scale-105">
+              <div className="absolute inset-0 bg-[url('https://picsum.photos/seed/grandfire/300/450')] opacity-40 bg-cover bg-center mix-blend-overlay group-hover:opacity-60 transition-opacity"></div>
+              <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent"></div>
               
               <div className="relative z-10 w-full text-center">
-                <div className="font-serif text-[28px] sm:text-[36px] md:text-[48px] text-white capitalize font-bold drop-shadow-[0_4px_8px_rgba(0,0,0,0.9)]">{character}</div>
-                <div className="text-[10px] sm:text-[12px] md:text-[16px] uppercase tracking-[3px] text-accent-gold mb-2 sm:mb-4 font-bold drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]">Level {playerData.level}</div>
+                <div className="font-serif text-[18px] sm:text-[24px] md:text-[36px] text-white capitalize font-bold drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)] truncate px-1">{character}</div>
+                <div className="text-[7px] sm:text-[9px] md:text-[12px] uppercase tracking-[1px] text-accent-gold mb-1 sm:mb-2 font-bold drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]">Lv.{playerData.level}</div>
                 
                 <select 
-                  value={character}
-                  onChange={(e) => setCharacter(e.target.value)}
-                  className="w-full p-[8px] sm:p-[10px] bg-black/80 border border-accent-gold/50 text-white text-[10px] sm:text-[12px] outline-none appearance-none cursor-pointer uppercase tracking-[2px] hover:border-accent-gold hover:bg-accent-gold/10 transition-colors rounded text-center font-bold backdrop-blur-md"
+                   value={character}
+                   onChange={(e) => setCharacter(e.target.value)}
+                   className="w-full p-[4px] sm:p-[6px] bg-black/80 border border-accent-gold/40 text-white text-[7px] sm:text-[9px] outline-none appearance-none cursor-pointer uppercase tracking-[1px] hover:border-accent-gold hover:bg-accent-gold/10 transition-colors rounded text-center font-bold backdrop-blur-sm"
                 >
-                  <option value="kelly">Kelly (Speed)</option>
-                  <option value="nairi">Nairi (Armor)</option>
-                  <option value="alok">Alok (Heal)</option>
-                  <option value="chrono">Chrono (Shield)</option>
+                  <option value="kelly">Kelly</option>
+                  <option value="nairi">Nairi</option>
+                  <option value="alok">Alok</option>
+                  <option value="chrono">Chrono</option>
                 </select>
               </div>
             </div>
           </div>
 
           {/* Bottom Bar - Mobile Optimized */}
-          <div className="flex flex-col gap-1 sm:gap-2 px-2 pb-2 shrink-0 z-20">
+          <div className="flex flex-col gap-1 sm:gap-2 px-2 pb-1 shrink-0 z-20">
             {/* Chat & Menus Row */}
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between h-[35px] sm:h-[45px]">
               {/* Chat */}
-              <div className="bg-black/60 border border-white/10 rounded p-1 sm:p-2 flex items-center gap-1 sm:gap-2 backdrop-blur-sm w-[120px] sm:w-[150px] md:w-[250px]">
-                <MessageSquare size={12} className="text-white/60 sm:w-[14px] sm:h-[14px]" />
-                <span className="text-[8px] sm:text-[9px] md:text-[11px] text-white/60 truncate">World | Team Invite...</span>
+              <div className="bg-black/60 border border-white/10 rounded p-1 sm:p-2 flex items-center gap-1 backdrop-blur-sm w-[100px] sm:w-[130px] md:w-[250px]">
+                <MessageSquare size={10} className="text-white/60 sm:w-[14px] sm:h-[14px]" />
+                <span className="text-[7px] sm:text-[9px] md:text-[11px] text-white/60 truncate">World | Team Invite...</span>
               </div>
 
               {/* Menus */}
-              <div className="flex gap-1 sm:gap-2">
-                <button onClick={() => setActiveModal('WEAPON')} className="flex flex-col items-center gap-1 text-white/80 hover:text-white">
-                  <div className="w-8 h-6 sm:w-10 sm:h-8 bg-black/60 border border-white/10 rounded flex items-center justify-center backdrop-blur-sm"><Crosshair size={14} className="sm:w-[16px] sm:h-[16px]" /></div>
-                  <span className="text-[6px] sm:text-[8px] uppercase font-bold">Weapon</span>
+              <div className="flex gap-1 sm:gap-2 h-full items-center">
+                <button onClick={() => setActiveModal('WEAPON')} className="flex flex-col items-center gap-0.5 text-white/80 hover:text-white">
+                  <div className="w-7 h-5 sm:w-10 sm:h-8 bg-black/60 border border-white/10 rounded flex items-center justify-center backdrop-blur-sm"><Crosshair size={12} className="sm:w-[16px] sm:h-[16px]" /></div>
+                  <span className="text-[5px] sm:text-[8px] uppercase font-bold">Weapon</span>
                 </button>
-                <button onClick={() => setActiveModal('PRESET')} className="flex flex-col items-center gap-1 text-white/80 hover:text-white">
-                  <div className="w-8 h-6 sm:w-10 sm:h-8 bg-black/60 border border-white/10 rounded flex items-center justify-center backdrop-blur-sm"><User size={14} className="sm:w-[16px] sm:h-[16px]" /></div>
-                  <span className="text-[6px] sm:text-[8px] uppercase font-bold">Preset</span>
+                <button onClick={() => setActiveModal('PRESET')} className="flex flex-col items-center gap-0.5 text-white/80 hover:text-white">
+                  <div className="w-7 h-5 sm:w-10 sm:h-8 bg-black/60 border border-white/10 rounded flex items-center justify-center backdrop-blur-sm"><User size={12} className="sm:w-[16px] sm:h-[16px]" /></div>
+                  <span className="text-[5px] sm:text-[8px] uppercase font-bold">Preset</span>
                 </button>
-                <button onClick={() => setActiveModal('LAB')} className="flex flex-col items-center gap-1 text-white/80 hover:text-white">
-                  <div className="w-8 h-6 sm:w-10 sm:h-8 bg-black/60 border border-white/10 rounded flex items-center justify-center backdrop-blur-sm"><Beaker size={14} className="sm:w-[16px] sm:h-[16px]" /></div>
-                  <span className="text-[6px] sm:text-[8px] uppercase font-bold">Lab</span>
+                <button onClick={() => setActiveModal('LAB')} className="flex flex-col items-center gap-0.5 text-white/80 hover:text-white">
+                  <div className="w-7 h-5 sm:w-10 sm:h-8 bg-black/60 border border-white/10 rounded flex items-center justify-center backdrop-blur-sm"><Beaker size={12} className="sm:w-[16px] sm:h-[16px]" /></div>
+                  <span className="text-[5px] sm:text-[8px] uppercase font-bold">Lab</span>
                 </button>
               </div>
             </div>
 
-            {/* Mode & Start Row */}
-            <div className="flex items-end justify-between mt-1">
-              <div className="bg-black/80 border border-white/20 rounded p-1 sm:p-2 flex flex-col w-[120px] sm:w-[150px] md:w-[200px] backdrop-blur-sm">
-                <div className="flex items-center gap-1 sm:gap-2 mb-1">
-                  <div className="w-4 h-4 sm:w-5 sm:h-5 bg-accent-gold rounded flex items-center justify-center text-black font-bold text-[8px] sm:text-[9px]">BR</div>
-                  <span className="text-white font-bold text-[10px] sm:text-[12px] uppercase">{mode}-RANKED</span>
-                </div>
-                <div className="flex gap-1 mt-1">
-                  {['solo', 'duo', 'squad'].map(m => (
+            {/* Mode & Start Row - Popup style UI */}
+            <div className="flex items-end justify-between mt-0.5 gap-1.5 sm:gap-2 relative">
+              <div className="flex flex-col gap-0.5 flex-1 max-w-[140px] sm:max-w-none">
+                {/* Mode Select Popup */}
+                {showModeSelect && (
+                  <div className="absolute bottom-[45px] sm:bottom-[65px] left-0 w-full bg-black/90 border border-accent-gold/40 rounded p-1 sm:p-2 z-[60] flex flex-col gap-1 backdrop-blur-md animate-in fade-in slide-in-from-bottom-2">
                     <button 
-                      key={m}
-                      onClick={() => setMode(m)}
-                      className={`flex-1 py-1 text-[6px] sm:text-[8px] uppercase font-bold rounded ${mode === m ? 'bg-accent-gold text-black' : 'bg-white/10 text-white'}`}
+                      onClick={() => { setGameMode('classic'); setShowModeSelect(false); startMatchmaking(); }}
+                      className="w-full p-2 text-[10px] sm:text-[12px] uppercase font-bold text-white hover:bg-accent-gold hover:text-black border border-white/5 rounded transition-all"
                     >
-                      {m}
+                      Classic Match (Solo)
                     </button>
-                  ))}
+                    <button 
+                      onClick={() => { setGameMode('rank'); setShowModeSelect(false); startMatchmaking(); }}
+                      className="w-full p-2 text-[10px] sm:text-[12px] uppercase font-bold text-white hover:bg-red-600 border border-white/5 rounded transition-all"
+                    >
+                      Rank Match (Solo)
+                    </button>
+                  </div>
+                )}
+
+                {/* Match Info Display */}
+                <div className="bg-black/80 border border-white/20 rounded p-1.5 sm:p-2.5 flex flex-col backdrop-blur-sm">
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-4 h-4 sm:w-5 sm:h-5 bg-accent-gold rounded flex items-center justify-center text-black font-extrabold text-[8px] sm:text-[10px]">
+                      {gameMode === 'classic' ? 'CL' : 'RN'}
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-white/60 text-[6px] sm:text-[8px] uppercase tracking-tighter">Current Mode</span>
+                      <span className="text-white font-black text-[9px] sm:text-[11px] uppercase tracking-wide truncate">
+                        {gameMode === 'classic' ? 'Classic' : 'Rank'} Match
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </div>
+
               <button 
-                onClick={startMatchmaking}
-                className="h-[40px] sm:h-[50px] md:h-[60px] px-6 sm:px-8 md:px-12 font-bold bg-accent-gold text-black uppercase tracking-[2px] cursor-pointer hover:brightness-110 transition-all text-[16px] sm:text-[20px] md:text-[24px] rounded shadow-[0_0_20px_rgba(212,175,55,0.4)] border-b-4 border-[rgba(0,0,0,0.3)] active:border-b-0 active:translate-y-1"
+                onClick={() => setShowModeSelect(!showModeSelect)}
+                className="h-[38px] sm:h-[55px] md:h-[65px] px-5 sm:px-10 md:px-14 font-black bg-accent-gold text-black uppercase tracking-[2px] cursor-pointer hover:brightness-110 active:scale-95 transition-all text-[14px] sm:text-[20px] md:text-[26px] rounded shadow-[0_0_20px_rgba(212,175,55,0.4)] border-b-2 sm:border-b-4 border-[rgba(0,0,0,0.3)]"
               >
-                START
+                {showModeSelect ? 'CANCEL' : 'START'}
               </button>
             </div>
           </div>
@@ -1502,60 +1566,84 @@ export default function App() {
 
       {screen === 'matchmaking' && (
         <div className="fixed inset-0 bg-bg-deep flex flex-col items-center justify-center z-[200]">
-          <div className="w-[80px] h-[80px] border-4 border-border-dark border-t-accent-gold rounded-full animate-spin mb-8"></div>
-          <h2 className="text-[24px] text-accent-gold mb-2 font-serif italic uppercase tracking-[2px]">Matchmaking</h2>
-          <div className="text-[12px] text-text-secondary uppercase tracking-[2px] mb-4">Searching for players...</div>
-          <div className="font-serif text-[48px] text-text-primary mb-4">00:{matchTimer < 10 ? `0${matchTimer}` : matchTimer}</div>
-          
-          <div className="bg-bg-card border border-border-dark p-4 rounded w-[300px]">
-            <div className="text-[10px] text-accent-gold uppercase mb-2 border-b border-white/10 pb-1">Players Found ({matchmakingPlayers.length})</div>
-            <div className="max-h-[150px] overflow-y-auto flex flex-col gap-1">
-              {matchmakingPlayers.map((name, i) => (
-                <div key={i} className="text-[12px] text-white/80 flex justify-between">
-                  <span>{name}</span>
-                  <span className="text-accent-gold text-[10px]">READY</span>
-                </div>
-              ))}
-              {matchmakingPlayers.length === 0 && <div className="text-[10px] text-white/40 italic">Waiting for players...</div>}
-            </div>
-          </div>
+          <div className="w-[60px] h-[60px] border-4 border-border-dark border-t-accent-gold rounded-full animate-spin mb-6"></div>
+          <h2 className="text-[20px] text-accent-gold mb-1 font-serif italic uppercase tracking-[2px]">Matchmaking</h2>
+          <div className="text-[12px] text-text-secondary uppercase tracking-[2px] mb-4">Searching for session...</div>
+          <div className="font-serif text-[48px] text-text-primary mb-3">00:{matchTimer < 10 ? `0${matchTimer}` : matchTimer}</div>
+          <div className="mt-4 text-white/30 text-[10px] uppercase tracking-widest animate-pulse">Wait for transition</div>
         </div>
       )}
 
       {screen === 'drop_selection' && (
-        <div className="fixed inset-0 bg-bg-deep flex flex-col items-center justify-center z-[200]">
-          <h2 className="text-[24px] text-accent-gold mb-2 font-serif italic uppercase tracking-[2px]">Select Drop Point</h2>
-          <div className="text-[12px] text-text-secondary uppercase tracking-[2px] mb-4">Click on the map to choose your starting location</div>
-          <div className="font-serif text-[32px] text-text-primary mb-8">00:{dropTimer < 10 ? `0${dropTimer}` : dropTimer}</div>
-          
-          <div 
-            className="w-[400px] h-[400px] bg-bg-card border border-accent-dim relative cursor-crosshair overflow-hidden"
-            onClick={handleMapClick}
-            style={{
-              backgroundImage: 'linear-gradient(rgba(212, 175, 55, 0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(212, 175, 55, 0.1) 1px, transparent 1px)',
-              backgroundSize: '40px 40px'
-            }}
-          >
-            {/* Marker */}
-            <div 
-              className="absolute w-4 h-4 border-2 border-accent-gold rounded-full transform -translate-x-1/2 -translate-y-1/2 flex items-center justify-center pointer-events-none transition-all duration-200"
-              style={{ left: `${(dropPoint.x / MAP_WIDTH) * 100}%`, top: `${(dropPoint.y / MAP_HEIGHT) * 100}%` }}
-            >
-              <div className="w-1 h-1 bg-accent-gold rounded-full"></div>
+        <div className="fixed inset-0 bg-bg-deep flex flex-col items-center justify-center z-[200] px-4 overflow-hidden">
+          {/* Header Area */}
+          <div className="flex flex-col items-center mb-6">
+            <h2 className="text-[20px] sm:text-[28px] text-accent-gold mb-1 font-serif italic uppercase tracking-[2px] drop-shadow-md">Select Drop Point</h2>
+            <div className="flex items-center gap-3 mb-2">
+              <div className="bg-black/60 px-3 py-1 rounded-full border border-white/10 flex items-center gap-2">
+                <Users size={14} className="text-accent-gold" />
+                <span className="text-[12px] sm:text-[14px] text-white font-black">{matchmakingPlayers.length + matchmakingBots.length} / 20</span>
+              </div>
+              <div className="text-[10px] sm:text-[12px] text-white/40 uppercase tracking-[1px]">Waiting for players</div>
+            </div>
+            
+            {/* Last Joined Notification Bubble */}
+            <div className={`transition-all duration-300 ${lastJoined ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'}`}>
+              <span className="text-[10px] bg-white/5 border border-white/10 px-3 py-0.5 rounded-full text-white/60">
+                <span className="text-accent-gold font-bold">{lastJoined || (matchmakingPlayers[matchmakingPlayers.length - 1])}</span> joined the session
+              </span>
             </div>
           </div>
 
-          <button 
-            onClick={() => { setDropTimer(0); startGame(); }}
-            className="mt-8 p-[12px_40px] font-bold bg-accent-gold border border-accent-gold text-bg-deep uppercase tracking-[2px] cursor-pointer hover:opacity-90 transition-opacity text-[14px]"
-          >
-            Confirm Drop
-          </button>
+          {/* Map Container */}
+          <div className="relative flex flex-col items-center group">
+            <div 
+              className="w-[280px] h-[280px] sm:w-[380px] sm:h-[380px] bg-[#1a3324] border-[3px] border-accent-gold/30 relative cursor-crosshair overflow-hidden rounded-xl shadow-[0_0_50px_rgba(0,0,0,0.6)] transition-all group-hover:border-accent-gold/60"
+              onClick={handleMapClick}
+            >
+              <svg width="400" height="400" viewBox={`0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`} className="absolute inset-0 pointer-events-none opacity-80">
+                {ROADS.map((r, i) => (
+                  <rect key={`road-${i}`} x={r.x} y={r.y} width={r.w} height={r.h} fill="#232326" />
+                ))}
+                {BUILDINGS.map((b, i) => (
+                  <rect key={`bldg-${i}`} x={b.x} y={b.y} width={b.w} height={b.h} fill="#121214" stroke="#252529" strokeWidth="2" />
+                ))}
+                {TREES.map((t, i) => (
+                  <circle key={`tree-${i}`} cx={t.x} cy={t.y} r="25" fill="#081c13" />
+                ))}
+              </svg>
+
+              {/* Scanline Effect */}
+              <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-transparent via-white/5 to-transparent h-[50%] animate-scanline" />
+
+              {/* Marker */}
+              <div 
+                className="absolute w-8 h-8 border-4 border-white rounded-full transform -translate-x-1/2 -translate-y-1/2 flex items-center justify-center pointer-events-none transition-all duration-200"
+                style={{ left: `${(dropPoint.x / MAP_WIDTH) * 100}%`, top: `${(dropPoint.y / MAP_HEIGHT) * 100}%` }}
+              >
+                <div className="absolute inset-0 bg-white/30 rounded-full animate-ping"></div>
+                <div className="w-2.5 h-2.5 bg-white rounded-full shadow-[0_0_10px_white]"></div>
+              </div>
+            </div>
+
+            {/* Floating Timer */}
+            <div className="absolute -top-4 -right-4 w-16 h-16 bg-bg-deep border-2 border-accent-gold rounded-full flex flex-col items-center justify-center shadow-xl z-10">
+              <span className="text-[10px] text-accent-gold uppercase font-black leading-none">Sec</span>
+              <span className="text-[20px] text-white font-serif font-black leading-none">{dropTimer}</span>
+            </div>
+
+            <button 
+              onClick={() => { setDropTimer(0); startGame(); }}
+              className="mt-8 px-12 py-3 bg-accent-gold text-bg-deep text-[14px] font-black uppercase tracking-[3px] rounded-lg shadow-[0_10px_30px_rgba(212,175,55,0.3)] hover:scale-105 active:scale-95 transition-all border-b-4 border-black/20"
+            >
+              Confirm Drop
+            </button>
+          </div>
         </div>
       )}
 
       {screen === 'game' && (
-        <div className="fixed inset-0 bg-black z-[300] touch-none">
+        <div className="fixed inset-0 bg-black z-[300] touch-none overflow-hidden">
           <canvas
             ref={canvasRef}
             className="block w-full h-full"
@@ -1580,118 +1668,144 @@ export default function App() {
               onTouchCancel={(e) => handleTouchEnd(e, 'right')}
             />
 
-            {/* Left Joystick Visual (Always Visible Base) */}
-            <div ref={leftJoyBaseRef} className="absolute left-[40px] bottom-[40px] w-[120px] h-[120px] bg-white/10 rounded-full border border-white/20 pointer-events-none flex items-center justify-center">
-              <div ref={leftJoyStickRef} className="w-[50px] h-[50px] bg-white/40 rounded-full shadow-[0_0_15px_rgba(255,255,255,0.3)] transition-transform duration-75"></div>
+            {/* Bottom Left: Backpack & Movement Joystick */}
+            <div className="absolute left-[30px] bottom-[30px] pointer-events-none z-[310]">
+               {/* Backpack */}
+               <button className="w-10 h-10 bg-black/40 border border-white/20 rounded-md flex items-center justify-center text-white mb-4 pointer-events-auto active:scale-95 shadow-lg backdrop-blur-sm">
+                 <Luggage size={20} />
+               </button>
+
+               {/* Movement Joystick Visual */}
+               <div ref={leftJoyBaseRef} className="w-[100px] h-[100px] bg-white/5 rounded-full border-2 border-white/10 flex items-center justify-center">
+                 <div ref={leftJoyStickRef} className="w-[45px] h-[45px] bg-white/20 rounded-full border border-white/30 shadow-[0_0_10px_rgba(255,255,255,0.2)]"></div>
+               </div>
             </div>
 
-            {/* Right Joystick Visual (Always Visible Base) */}
-            <div ref={rightJoyBaseRef} className="absolute right-[40px] bottom-[40px] w-[120px] h-[120px] bg-white/10 rounded-full border border-white/20 pointer-events-none flex items-center justify-center">
-              <div ref={rightJoyStickRef} className="w-[50px] h-[50px] bg-accent-gold/40 rounded-full shadow-[0_0_15px_rgba(212,175,55,0.3)] transition-transform duration-75 flex items-center justify-center">
-                <Crosshair size={24} className="text-white/80" />
-              </div>
-            </div>
+            {/* Bottom Right: Attack & Action Buttons */}
+            <div className="absolute right-[30px] bottom-[30px] w-[140px] h-[140px] pointer-events-none z-[310]">
+               {/* Right Joystick Visual (Now the Fire Joystick) */}
+               <div ref={rightJoyBaseRef} className="absolute right-0 bottom-0 w-[110px] h-[110px] bg-white/5 rounded-full border-4 border-white/10 flex items-center justify-center transition-all">
+                  <div ref={rightJoyStickRef} className="w-[65px] h-[65px] bg-white/15 rounded-full border-2 border-white/20 shadow-[0_0_20px_rgba(255,255,255,0.15)] flex items-center justify-center backdrop-blur-sm transition-transform duration-75">
+                    <Sword size={32} className="text-white fill-white/10" />
+                  </div>
+               </div>
 
-            {/* Super Button */}
-            <button 
-              onClick={useCharacterSkill}
-              className="absolute right-[40px] bottom-[180px] w-[60px] h-[60px] bg-gradient-to-br from-yellow-400 to-orange-600 rounded-full border-2 border-white/50 shadow-[0_0_15px_rgba(255,165,0,0.8)] pointer-events-auto flex items-center justify-center active:scale-90 transition-transform"
-            >
-              <Zap size={28} className="text-white drop-shadow-md" />
-            </button>
+               {/* Skill Button (Remains) */}
+               <button 
+                 onClick={useCharacterSkill}
+                 className="absolute right-[85px] bottom-[100px] w-12 h-12 bg-gradient-to-tr from-accent-gold to-yellow-600 border border-white/30 rounded-full pointer-events-auto flex items-center justify-center active:scale-90 transition-transform shadow-[0_0_15px_gold] z-[320]"
+               >
+                 <Target size={22} className="text-white" />
+               </button>
+            </div>
             
-            {/* Auto Aim Hint */}
-            <div className="absolute right-[40px] bottom-[250px] text-white/50 text-[10px] uppercase tracking-[1px] pointer-events-none text-right">
-              Tap right side<br/>to Auto-Aim
+            {/* Auto Aim Hint - Floating */}
+            <div className="absolute right-[25px] bottom-[210px] text-white/40 text-[9px] uppercase tracking-[1.5px] pointer-events-none text-right font-bold italic">
+              Touch Area Right for AIM & AUTO
             </div>
           </div>
 
           {/* HUD Overlay */}
           <div className="absolute inset-0 pointer-events-none z-[350]">
-            {/* HUD Top - Header Style */}
-            <header className="absolute top-0 left-0 right-0 h-[50px] md:h-[70px] bg-bg-card/80 backdrop-blur-sm border-b border-border-dark flex items-center justify-between px-4 md:px-10 z-[350] pointer-events-none">
-              <div className="font-serif text-[16px] md:text-[24px] italic text-accent-gold tracking-[2px] uppercase">
-                GTA Pixel
-              </div>
+            {/* HUD Top Left: Mini Map Placeholder */}
+            <div className="absolute top-2 left-2 w-[100px] h-[100px] sm:w-[130px] sm:h-[130px] bg-black/40 border-2 border-white/20 rounded shadow-lg overflow-hidden flex items-center justify-center">
+               <div className="absolute inset-0 opacity-40 bg-[url('https://picsum.photos/seed/map/200/200')] bg-cover"></div>
+               <div className="relative z-10 text-[10px] text-white/60 font-black uppercase tracking-widest text-center px-1">
+                 <Map size={16} className="mx-auto mb-1 opacity-60" />
+                 Sector {state.current.safeZone.radius > 500 ? 'A1' : 'B2'}
+               </div>
+               {/* Player dot on mini map */}
+               <div className="absolute w-2 h-2 bg-accent-gold rounded-full border border-white animate-pulse" />
+            </div>
+
+            {/* HUD Top Right: Game Info */}
+            <div className="absolute top-2 right-2 flex flex-col gap-1 items-end">
+               <div className="flex gap-2 items-center scale-90 sm:scale-100">
+                  <div className="flex items-center gap-1 bg-black/40 px-2 py-0.5 rounded border border-white/10">
+                     <Users size={12} className="text-accent-gold" />
+                     <span className="text-white text-[12px] font-bold">{hud.alive}</span>
+                  </div>
+                  <div className="flex items-center gap-1 bg-black/40 px-2 py-0.5 rounded border border-white/10">
+                     <Skull size={12} className="text-red-500" />
+                     <span className="text-white text-[12px] font-bold">{hud.kills}</span>
+                  </div>
+                  <Settings size={18} className="text-white/60 pointer-events-auto cursor-pointer ml-1" onClick={() => setScreen('lobby')} />
+               </div>
+               <div className="text-[9px] text-white/40 uppercase tracking-widest">FPS: 60 | Ping: 24ms</div>
+            </div>
+
+            {/* HUD Top Center: Safe Zone Info */}
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 flex flex-col items-center">
+               <div className="bg-black/60 border border-accent-gold/50 px-6 py-1 rounded-full text-white text-[10px] font-bold tracking-[2px] uppercase backdrop-blur-md shadow-[0_0_15px_rgba(255,255,255,0.1)]">
+                 Safe Zone Shrinking: {hud.zoneTimer}s
+               </div>
+               <div className="mt-1 text-accent-gold text-[9px] font-black tracking-widest uppercase animate-pulse">
+                 Time-limited auto-revival: Enabled
+               </div>
+            </div>
             
-            {/* Kill Feed */}
-            <div className="absolute top-[80px] right-10 flex flex-col gap-2 pointer-events-none">
+            {/* HUD Bottom Center: HP & Armor Bar */}
+            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-[200px] sm:w-[300px] flex flex-col items-center gap-1">
+               {/* Armor Bar */}
+               {hud.armor > 0 && (
+                 <div className="w-full h-1 bg-black/40 rounded-full overflow-hidden border border-white/10">
+                    <div className="h-full bg-blue-500 transition-all duration-300 shadow-[0_0_10px_rgba(59,130,246,0.5)]" style={{ width: `${(hud.armor / 200) * 100}%` }} />
+                 </div>
+               )}
+               {/* HP Bar Container */}
+               <div className="w-full h-3 sm:h-4 bg-black/50 border-2 border-white/20 rounded overflow-hidden relative shadow-2xl backdrop-blur-sm">
+                  <div className="h-full bg-accent-gold transition-all duration-300" style={{ width: `${(hud.hp / 200) * 100}%` }} />
+                  <div className="absolute inset-0 flex items-center justify-center text-[8px] sm:text-[10px] font-black text-white mix-blend-difference uppercase tracking-widest">
+                    HP {Math.max(0, hud.hp)} / 200
+                  </div>
+               </div>
+            </div>
+
+            {/* Kill Feed - Moved Left Side */}
+            <div className="absolute top-[140px] left-2 flex flex-col gap-1 pointer-events-none">
               {killFeed.map(k => (
-                <div key={k.id} className="bg-black/60 border-l-2 border-accent-gold px-4 py-1 flex items-center gap-3 animate-fade-in">
-                  <span className="text-accent-gold font-bold text-[12px]">{k.killer}</span>
-                  <div className="w-4 h-[1px] bg-white/30"></div>
-                  <span className="text-white text-[12px]">{k.victim}</span>
+                <div key={k.id} className="bg-black/40 border-l-2 border-accent-gold px-2 py-0.5 flex items-center gap-2 animate-fade-in text-[9px] text-white backdrop-blur-sm">
+                  <span className="text-accent-gold font-bold">{k.killer}</span>
+                  <Sword size={8} className="text-white/40" />
+                  <span>{k.victim}</span>
                 </div>
               ))}
             </div>
 
-            <div className="flex gap-[30px]">
-              <div className="flex flex-col items-end">
-                <span className="text-[10px] uppercase text-text-secondary tracking-[1px]">Health</span>
-                <span className="font-serif text-[18px] text-accent-gold">{hud.hp} / {hud.armor}</span>
+            {/* Weapon Panel - Bottom Right Area above Joystick */}
+            <div className="absolute bottom-[220px] right-4 bg-black/60 p-2 border border-white/10 rounded flex flex-col items-end backdrop-blur-sm shadow-xl">
+               <div className="text-[10px] font-black text-accent-gold uppercase mb-0.5 tracking-wider">{hud.weaponName}</div>
+               <div className="flex items-center gap-2">
+                 <div className="h-1 w-12 bg-white/20 rounded-full overflow-hidden">
+                    <div className="h-full bg-white transition-all" style={{ width: `${(hud.ammo / hud.maxAmmo) * 100}%` }} />
+                 </div>
+                 <div className="text-[14px] font-black text-white italic">{hud.ammo}<span className="text-[10px] text-white/50 not-italic ml-0.5">/{hud.maxAmmo}</span></div>
+               </div>
+            </div>
+
+            {/* Quick Messages */}
+            <div className="absolute left-4 bottom-[150px] flex flex-col gap-1 z-[360] pointer-events-auto">
+               <button onClick={handleQuickChat} className="w-8 h-8 bg-black/60 rounded-full border border-white/20 flex items-center justify-center text-white/80 active:scale-90 transition-transform">
+                  <MessageSquare size={14} />
+               </button>
+            </div>
+
+            {/* Booyah Screen */}
+            {hud.booyah && (
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-[48px] md:text-[64px] font-serif italic text-accent-gold z-[400] pointer-events-none whitespace-nowrap animate-booyah text-center drop-shadow-[0_0_30px_rgba(212,175,55,0.8)]">
+                BOOYAH!<br/>
+                <span className="text-[14px] md:text-[18px] uppercase tracking-[8px] text-white font-bold not-italic">Victory Royale</span>
               </div>
-              <div className="flex flex-col items-end">
-                <span className="text-[10px] uppercase text-text-secondary tracking-[1px]">Alive</span>
-                <span className="font-serif text-[18px] text-accent-gold">{hud.alive}</span>
+            )}
+
+            {/* Game Over Screen */}
+            {hud.gameOver && (
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-[48px] md:text-[64px] font-serif italic text-red-500 z-[400] pointer-events-none whitespace-nowrap animate-booyah text-center drop-shadow-[0_0_30px_rgba(255,0,0,0.8)]">
+                DEFEAT<br/>
+                <span className="text-[14px] md:text-[18px] uppercase tracking-[8px] text-white font-bold not-italic">Rank #{hud.place}</span>
               </div>
-              <div className="flex flex-col items-end">
-                <span className="text-[10px] uppercase text-text-secondary tracking-[1px]">Rank</span>
-                <span className="font-serif text-[18px] text-accent-gold">{hud.rank}</span>
-              </div>
-            </div>
-          </header>
-
-          {/* Zone Timer */}
-          <div className="absolute top-[80px] right-4 bg-black/60 p-[10px_15px] border border-white/10 rounded backdrop-blur-sm z-[350] pointer-events-none">
-            <div className="font-serif text-[12px] italic text-accent-gold mb-1 border-b border-white/10 pb-1">Safe Zone</div>
-            <div className="text-[11px] text-white/80">{hud.zoneTimer}s | {hud.zoneRadius}m</div>
+            )}
           </div>
-
-          {/* Weapon Panel - Moved to Top Left */}
-          <div className="absolute top-[80px] left-4 bg-black/60 p-[10px_15px] border border-white/10 rounded backdrop-blur-sm z-[350] pointer-events-none">
-            <div className="font-serif text-[12px] italic text-accent-gold mb-1 border-b border-white/10 pb-1">Equipped</div>
-            <div className="text-[11px] text-white/80">{hud.weaponName} | {hud.ammo}/{hud.maxAmmo}</div>
-          </div>
-
-          {/* Quick Chat Messages */}
-          {hud.messages.map((msg, i) => (
-            <div key={msg.id} className="absolute left-4 bg-black/60 p-[8px_12px] border border-white/10 rounded text-white text-[10px] z-[350] pointer-events-none transition-all backdrop-blur-sm" style={{ bottom: `${80 + i * 40}px` }}>
-              {msg.text}
-            </div>
-          ))}
-
-          {/* Booyah Screen */}
-          {hud.booyah && (
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-[36px] md:text-[48px] font-serif italic text-accent-gold z-[400] pointer-events-none whitespace-nowrap animate-booyah text-center drop-shadow-[0_0_20px_rgba(212,175,55,0.8)]">
-              VICTORY<br/>
-              <span className="text-[12px] md:text-[14px] uppercase tracking-[4px] text-white/80 not-italic">The Empire Prevails</span>
-            </div>
-          )}
-
-          {/* Game Over Screen */}
-          {hud.gameOver && (
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-[36px] md:text-[48px] font-serif italic text-red-500 z-[400] pointer-events-none whitespace-nowrap animate-booyah text-center drop-shadow-[0_0_20px_rgba(255,0,0,0.8)]">
-              DEFEAT<br/>
-              <span className="text-[12px] md:text-[14px] uppercase tracking-[4px] text-white/80 not-italic">Rank #{hud.place}</span>
-            </div>
-          )}
-
-          {/* Floating Action Buttons */}
-          <div className="absolute bottom-[20px] left-1/2 -translate-x-1/2 flex gap-2 md:gap-4 z-[350] pointer-events-auto">
-            <button onClick={handleJump} className="w-[40px] h-[40px] md:w-[50px] md:h-[50px] bg-black/50 border border-white/20 rounded-full flex items-center justify-center text-white text-[10px] uppercase backdrop-blur-sm active:bg-white/20">
-              JMP
-            </button>
-            <button onClick={handleCrouch} className="w-[40px] h-[40px] md:w-[50px] md:h-[50px] bg-black/50 border border-white/20 rounded-full flex items-center justify-center text-white text-[10px] uppercase backdrop-blur-sm active:bg-white/20">
-              CRH
-            </button>
-            <button onClick={handleMedkit} className="w-[40px] h-[40px] md:w-[50px] md:h-[50px] bg-black/50 border border-white/20 rounded-full flex items-center justify-center text-white text-[10px] uppercase backdrop-blur-sm active:bg-white/20">
-              MED
-            </button>
-            <button onClick={handleQuickChat} className="w-[40px] h-[40px] md:w-[50px] md:h-[50px] bg-black/50 border border-white/20 rounded-full flex items-center justify-center text-white text-[10px] uppercase backdrop-blur-sm active:bg-white/20">
-              MSG
-            </button>
-          </div>
-        </div>
         </div>
       )}
     </div>
