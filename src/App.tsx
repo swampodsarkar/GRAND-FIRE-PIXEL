@@ -167,7 +167,15 @@ export default function App() {
   const [character, setCharacter] = useState('kelly');
   const [matchTimer, setMatchTimer] = useState(30);
   const [dropPoint, setDropPoint] = useState({ x: 1500, y: 1500 });
-  const [playerData, setPlayerData] = useState({ gold: 0, diamonds: 0, level: 1 });
+  const [playerData, setPlayerData] = useState({ 
+    gold: 500, 
+    diamonds: 0, 
+    level: 1, 
+    exp: 0, 
+    unlockedCharacters: ['kelly'] as string[], 
+    unlockedSkins: [] as string[] 
+  });
+  const [matchRewards, setMatchRewards] = useState<{ exp: number, gold: number, rankValue: number } | null>(null);
   const [dropTimer, setDropTimer] = useState(10);
   const [activeModal, setActiveModal] = useState<string | null>(null);
   const [matchmakingPlayers, setMatchmakingPlayers] = useState<string[]>([]);
@@ -261,9 +269,15 @@ export default function App() {
     try {
       const snapshot = await get(playerRef);
       if (snapshot.exists()) {
-        setPlayerData(snapshot.val());
+        const data = snapshot.val();
+        setPlayerData({
+          ...data,
+          unlockedCharacters: data.unlockedCharacters || ['kelly'],
+          unlockedSkins: data.unlockedSkins || [],
+          exp: data.exp || 0
+        });
       } else {
-        const newData = { gold: 0, diamonds: 0, level: 1 };
+        const newData = { gold: 500, diamonds: 0, level: 1, exp: 0, unlockedCharacters: ['kelly'], unlockedSkins: [] };
         await set(playerRef, newData);
         setPlayerData(newData);
       }
@@ -585,25 +599,155 @@ export default function App() {
     requestRef.current = requestAnimationFrame(gameLoop);
   };
 
+  // --- Audio System ---
+  const audioCtxRef = useRef<AudioContext | null>(null);
+
+  const initAudio = () => {
+    if (!audioCtxRef.current) {
+      audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+    }
+  };
+
+  const playGunSound = (weaponType: string) => {
+    if (!audioCtxRef.current) return;
+    const ctx = audioCtxRef.current;
+    if (ctx.state === 'suspended') ctx.resume();
+    
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    
+    if (weaponType === 'sniper') {
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(150, now);
+      osc.frequency.exponentialRampToValueAtTime(40, now + 0.3);
+      gain.gain.setValueAtTime(1, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+      osc.start(now);
+      osc.stop(now + 0.5);
+    } else if (weaponType === 'shotgun') {
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(100, now);
+      osc.frequency.exponentialRampToValueAtTime(40, now + 0.2);
+      gain.gain.setValueAtTime(0.8, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+      osc.start(now);
+      osc.stop(now + 0.3);
+    } else {
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(250, now);
+      osc.frequency.exponentialRampToValueAtTime(100, now + 0.1);
+      gain.gain.setValueAtTime(0.3, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+      osc.start(now);
+      osc.stop(now + 0.15);
+    }
+  };
+
+  const playHitSound = () => {
+    if (!audioCtxRef.current) return;
+    const ctx = audioCtxRef.current;
+    if (ctx.state === 'suspended') ctx.resume();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'square';
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    const now = ctx.currentTime;
+    osc.frequency.setValueAtTime(400, now);
+    osc.frequency.exponentialRampToValueAtTime(600, now + 0.05);
+    gain.gain.setValueAtTime(0.1, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+    osc.start(now);
+    osc.stop(now + 0.1);
+  };
+
   const triggerGameOver = () => {
+    const p = state.current.localPlayer;
+    if (!p) return;
+    
     state.current.gameOverDisplay = true;
-    setHud(prev => ({ ...prev, gameOver: true, place: state.current.enemies.length + 1 }));
+    const place = state.current.enemies.length + 1;
+    setHud(prev => ({ ...prev, gameOver: true, place }));
+    
+    // Rewards
+    let expGained = 0;
+    let goldGained = 0;
+    let rankChange = 0;
+    
+    if (gameMode === 'rank') {
+      rankChange = Math.floor(p.kills * 10 - place * 2 + 10);
+      state.current.rankPoints = Math.max(0, state.current.rankPoints + rankChange);
+    } else {
+      expGained = 50 + (p.kills * 20) + Math.max(0, (20 - place) * 10);
+      goldGained = 20 + (p.kills * 15) + Math.max(0, (20 - place) * 5);
+      
+      const newExp = playerData.exp + expGained;
+      const newLevel = Math.floor(newExp / 1000) + 1;
+      
+      const newPlayerData = {
+        ...playerData, 
+        exp: newExp, 
+        level: newLevel,
+        gold: playerData.gold + goldGained
+      };
+      setPlayerData(newPlayerData);
+      set(ref(db, 'users/' + playerName), newPlayerData);
+    }
+    
+    setMatchRewards({ exp: expGained, gold: goldGained, rankValue: rankChange });
+
     setTimeout(() => {
       setScreen('lobby');
       state.current.isInGame = false;
       setHud(prev => ({ ...prev, gameOver: false }));
-    }, 4000);
+      setMatchRewards(null);
+    }, 5000);
   };
 
   const triggerBooyah = () => {
+    const p = state.current.localPlayer;
+    if (!p) return;
+
     state.current.booyahDisplay = true;
-    state.current.rankPoints += 50;
     setHud(prev => ({ ...prev, booyah: true }));
+    
+    // Rewards
+    let expGained = 0;
+    let goldGained = 0;
+    let rankChange = 0;
+    
+    if (gameMode === 'rank') {
+      rankChange = 50 + p.kills * 15;
+      state.current.rankPoints += rankChange;
+    } else {
+      expGained = 500 + p.kills * 50;
+      goldGained = 300 + p.kills * 25;
+      
+      const newExp = playerData.exp + expGained;
+      const newLevel = Math.floor(newExp / 1000) + 1;
+      
+      const newPlayerData = {
+        ...playerData, 
+        exp: newExp, 
+        level: newLevel,
+        gold: playerData.gold + goldGained
+      };
+      setPlayerData(newPlayerData);
+      set(ref(db, 'users/' + playerName), newPlayerData);
+    }
+    
+    setMatchRewards({ exp: expGained, gold: goldGained, rankValue: rankChange });
+
     setTimeout(() => {
       setScreen('lobby');
       state.current.isInGame = false;
       setHud(prev => ({ ...prev, booyah: false }));
-    }, 4000);
+      setMatchRewards(null);
+    }, 6000);
   };
 
   // --- Actions ---
@@ -676,6 +820,7 @@ export default function App() {
 
     state.current.lastShoot = now;
     p.ammo--;
+    playGunSound(weapon.type);
 
     // Auto aim assist
     let aimAngle = p.angle;
@@ -1499,6 +1644,21 @@ export default function App() {
     };
   }, [playerName]);
 
+  const handleBuy = (type: 'character' | 'skin', itemId: string, cost: number, currency: 'gold' | 'diamonds') => {
+    if (playerData[currency] >= cost) {
+      const newPlayerData = {
+        ...playerData,
+        [currency]: playerData[currency] - cost,
+        [type === 'character' ? 'unlockedCharacters' : 'unlockedSkins']: [...playerData[type === 'character' ? 'unlockedCharacters' : 'unlockedSkins'], itemId]
+      };
+      setPlayerData(newPlayerData);
+      set(ref(db, 'users/' + playerName), newPlayerData);
+      alert('Purchase successful!');
+    } else {
+      alert(`Not enough ${currency}!`);
+    }
+  };
+
   // --- Render ---
   return (
     <div className="w-full h-screen overflow-hidden bg-bg-deep text-text-primary font-sans select-none">
@@ -1528,7 +1688,7 @@ export default function App() {
             </div>
             
             <button 
-              onClick={goToLobby}
+              onClick={() => { initAudio(); goToLobby(); }}
               className="w-full p-[18px] bg-accent-gold text-bg-deep text-[16px] font-black uppercase tracking-[4px] cursor-pointer hover:brightness-110 active:scale-95 transition-all rounded-[20px] shadow-[0_10px_30px_rgba(212,175,55,0.3)] border-b-4 border-black/20"
             >
               IDENTITY CONFIRMED
@@ -1610,17 +1770,16 @@ export default function App() {
               
               <div className="relative z-10 w-full text-center">
                 <div className="font-serif text-[18px] sm:text-[24px] md:text-[36px] text-white capitalize font-bold drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)] truncate px-1">{character}</div>
-                <div className="text-[7px] sm:text-[9px] md:text-[12px] uppercase tracking-[1px] text-accent-gold mb-1 sm:mb-2 font-bold drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]">Lv.{playerData.level}</div>
+                <div className="text-[7px] sm:text-[9px] md:text-[12px] uppercase tracking-[1px] text-accent-gold mb-1 sm:mb-2 font-bold drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]">Lv.{playerData.level} (EXP: {playerData.exp})</div>
                 
                 <select 
                    value={character}
                    onChange={(e) => setCharacter(e.target.value)}
                    className="w-full p-[4px] sm:p-[6px] bg-black/80 border border-accent-gold/40 text-white text-[7px] sm:text-[9px] outline-none appearance-none cursor-pointer uppercase tracking-[1px] hover:border-accent-gold hover:bg-accent-gold/10 transition-colors rounded text-center font-bold backdrop-blur-sm"
                 >
-                  <option value="kelly">Kelly</option>
-                  <option value="nairi">Nairi</option>
-                  <option value="alok">Alok</option>
-                  <option value="chrono">Chrono</option>
+                  {playerData.unlockedCharacters.map(char => (
+                    <option key={char} value={char}>{char}</option>
+                  ))}
                 </select>
               </div>
             </div>
@@ -1714,13 +1873,87 @@ export default function App() {
               initial={{ scale: 0.9, y: 20 }}
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.9, y: 20 }}
-              className="bg-bg-card border border-accent-gold/50 p-8 rounded-xl max-w-[400px] w-full text-center shadow-[0_0_30px_rgba(212,175,55,0.15)]"
+              className={`bg-bg-card border border-accent-gold/50 ${(activeModal === 'STORE' || activeModal === 'EVENTS') ? 'max-w-[700px] p-6' : 'max-w-[400px] p-8'} rounded-xl w-[95%] w-full shadow-[0_0_30px_rgba(212,175,55,0.15)] relative max-h-[90vh] flex flex-col`}
             >
-              <h3 className="text-accent-gold font-serif text-[24px] uppercase tracking-[2px] mb-4">{activeModal}</h3>
-              <p className="text-text-secondary text-[14px] mb-8">This feature is currently under development. Check back later for updates!</p>
+              <h3 className="text-accent-gold font-serif text-[24px] uppercase tracking-[2px] mb-4 text-center shrink-0">{activeModal}</h3>
+              
+              <div className="flex-1 overflow-y-auto min-h-0 text-left mb-6 pr-2">
+                {activeModal === 'STORE' ? (
+                  <div className="space-y-6">
+                    <div className="flex justify-between items-center bg-black/40 p-3 border border-white/10 rounded">
+                      <span className="text-white text-sm">Your Gold: <span className="text-accent-gold font-bold">{playerData.gold}</span></span>
+                      <span className="text-white text-sm">Your Diamonds: <span className="text-cyan-400 font-bold">{playerData.diamonds}</span></span>
+                    </div>
+                    
+                    <div>
+                      <h4 className="text-white font-bold uppercase tracking-[2px] mb-3 text-sm border-b border-white/10 pb-1">Characters</h4>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                        {['nairi', 'alok', 'chrono'].map(char => (
+                          <div key={char} className="border border-white/10 bg-black/40 p-3 rounded flex flex-col justify-between">
+                            <div>
+                               <h5 className="text-white font-bold capitalize mb-1">{char}</h5>
+                               <p className="text-accent-gold text-xs font-bold mb-3">{char === 'alok' ? '5000' : '2000'} Gold</p>
+                            </div>
+                            {playerData.unlockedCharacters.includes(char) 
+                              ? <button disabled className="bg-white/20 text-white/50 w-full py-1.5 text-xs font-bold uppercase rounded cursor-not-allowed">Owned</button>
+                              : <button onClick={() => handleBuy('character', char, char === 'alok' ? 5000 : 2000, 'gold')} className="bg-accent-gold text-black w-full py-1.5 text-xs font-bold uppercase rounded hover:brightness-110">Buy</button>
+                            }
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <h4 className="text-white font-bold uppercase tracking-[2px] mb-3 text-sm border-b border-white/10 pb-1">Gun Skins (Customs)</h4>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                        {[
+                          { id: 'm4a1-gold', name: 'Golden M4A1', cost: 1000, type: 'gold', boost: '+10% DMG' },
+                          { id: 'awm-dragon', name: 'Dragon AWM', cost: 500, type: 'diamonds', boost: '+20% Range' },
+                          { id: 'mp5-toxic', name: 'Toxic MP5', cost: 800, type: 'gold', boost: '+15% Fire Rate'}
+                        ].map(skin => (
+                          <div key={skin.id} className="border border-white/10 bg-black/40 p-3 rounded flex flex-col justify-between relative overflow-hidden">
+                            <div className="absolute -right-6 top-3 bg-red-600 text-white text-[8px] font-bold py-0.5 px-6 rotate-45">{skin.boost}</div>
+                            <div>
+                               <h5 className="text-white font-bold mb-1 truncate pr-4">{skin.name}</h5>
+                               <p className={`${skin.type === 'gold' ? 'text-accent-gold' : 'text-cyan-400'} text-xs font-bold mb-3`}>{skin.cost} {skin.type}</p>
+                            </div>
+                            {playerData.unlockedSkins.includes(skin.id) 
+                              ? <button disabled className="bg-white/20 text-white/50 w-full py-1.5 text-xs font-bold uppercase rounded cursor-not-allowed">Owned</button>
+                              : <button onClick={() => handleBuy('skin', skin.id, skin.cost, skin.type as any)} className="bg-accent-gold text-black w-full py-1.5 text-xs font-bold uppercase rounded hover:brightness-110">Buy</button>
+                            }
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ) : activeModal === 'EVENTS' ? (
+                  <div className="space-y-4">
+                    {[
+                      { title: 'Top Reward Drop', desc: 'Play 3 Classic matches today and get 500 Gold!', status: 'IN PROGRESS' },
+                      { title: 'Ranked Warrior', desc: 'Secure Booyah in Rank mode for a chance to win 50 Diamonds.', status: 'ACTIVE' },
+                      { title: 'Weekend Challenge', desc: 'Coming this weekend: 2x EXP and Gold limit increased.', status: 'UPCOMING' },
+                    ].map((ev, i) => (
+                      <div key={i} className="flex flex-col sm:flex-row sm:items-center justify-between border border-accent-gold/20 bg-black/40 p-4 rounded-lg gap-4">
+                        <div>
+                          <h4 className="text-accent-gold font-bold text-lg mb-1">{ev.title}</h4>
+                          <p className="text-white/70 text-sm">{ev.desc}</p>
+                        </div>
+                        <button className="px-6 py-2 bg-white/10 text-white text-xs font-bold rounded uppercase whitespace-nowrap border border-white/20 hover:bg-white/20">
+                          {ev.status}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center">
+                    <p className="text-text-secondary text-[14px] mb-8">This feature is currently under development. Check back later for updates!</p>
+                  </div>
+                )}
+              </div>
+              
               <button 
                 onClick={() => setActiveModal(null)}
-                className="px-8 py-2 bg-accent-gold text-black font-bold uppercase tracking-[2px] rounded hover:brightness-110 transition-all"
+                className="px-8 py-3 w-full sm:w-auto self-center bg-accent-gold text-black font-bold uppercase tracking-[2px] rounded hover:brightness-110 transition-all shrink-0 mt-auto"
               >
                 Close
               </button>
@@ -2110,17 +2343,67 @@ export default function App() {
 
             {/* Booyah Screen */}
             {hud.booyah && (
-              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-[48px] md:text-[64px] font-serif italic text-accent-gold z-[400] pointer-events-none whitespace-nowrap animate-booyah text-center drop-shadow-[0_0_30px_rgba(212,175,55,0.8)]">
-                BOOYAH!<br/>
-                <span className="text-[14px] md:text-[18px] uppercase tracking-[8px] text-white font-bold not-italic">Victory Royale</span>
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[400] pointer-events-none flex flex-col items-center animate-booyah">
+                <div className="text-[48px] md:text-[64px] font-serif italic text-accent-gold whitespace-nowrap text-center drop-shadow-[0_0_30px_rgba(212,175,55,0.8)] leading-none">
+                  BOOYAH!<br/>
+                  <span className="text-[14px] md:text-[18px] uppercase tracking-[8px] text-white font-bold not-italic">Victory Royale</span>
+                </div>
+                {matchRewards && (
+                  <div className="mt-8 bg-black/80 border border-accent-gold/40 p-4 rounded-xl backdrop-blur-md min-w-[250px] text-center shadow-[0_0_30px_rgba(212,175,55,0.2)]">
+                    <h3 className="text-white text-[12px] uppercase tracking-widest font-bold mb-3 border-b border-white/10 pb-2">Match Rewards</h3>
+                    {gameMode === 'rank' ? (
+                      <div className="text-accent-gold text-[20px] font-black uppercase tracking-widest">
+                        Rank Points: <span className="text-green-400">+{matchRewards.rankValue}</span>
+                      </div>
+                    ) : (
+                      <div className="flex justify-around items-center gap-4">
+                        <div className="flex flex-col">
+                           <span className="text-white/60 text-[10px] uppercase font-bold tracking-widest">EXP</span>
+                           <span className="text-white text-[20px] font-black">+{matchRewards.exp}</span>
+                        </div>
+                        <div className="w-[1px] h-8 bg-white/20"></div>
+                        <div className="flex flex-col">
+                           <span className="text-white/60 text-[10px] uppercase font-bold tracking-widest">Gold</span>
+                           <span className="text-accent-gold text-[20px] font-black">+{matchRewards.gold}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
             {/* Game Over Screen */}
             {hud.gameOver && (
-              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-[48px] md:text-[64px] font-serif italic text-red-500 z-[400] pointer-events-none whitespace-nowrap animate-booyah text-center drop-shadow-[0_0_30px_rgba(255,0,0,0.8)]">
-                DEFEAT<br/>
-                <span className="text-[14px] md:text-[18px] uppercase tracking-[8px] text-white font-bold not-italic">Rank #{hud.place}</span>
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[400] pointer-events-none flex flex-col items-center animate-booyah">
+                <div className="text-[48px] md:text-[64px] font-serif italic text-red-500 whitespace-nowrap text-center drop-shadow-[0_0_30px_rgba(255,0,0,0.8)] leading-none">
+                  DEFEAT<br/>
+                  <span className="text-[14px] md:text-[18px] uppercase tracking-[8px] text-white font-bold not-italic">Rank #{hud.place}</span>
+                </div>
+                {matchRewards && (
+                  <div className="mt-8 bg-black/80 border border-white/20 p-4 rounded-xl backdrop-blur-md min-w-[250px] text-center">
+                    <h3 className="text-white text-[12px] uppercase tracking-widest font-bold mb-3 border-b border-white/10 pb-2">Match Report</h3>
+                    {gameMode === 'rank' ? (
+                      <div className="text-white/80 text-[20px] font-black uppercase tracking-widest">
+                        Rank Points: <span className={matchRewards.rankValue >= 0 ? "text-green-400" : "text-red-500"}>
+                          {matchRewards.rankValue > 0 ? '+' : ''}{matchRewards.rankValue}
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="flex justify-around items-center gap-4">
+                        <div className="flex flex-col">
+                           <span className="text-white/60 text-[10px] uppercase font-bold tracking-widest">EXP</span>
+                           <span className="text-white text-[20px] font-black">+{matchRewards.exp}</span>
+                        </div>
+                        <div className="w-[1px] h-8 bg-white/20"></div>
+                        <div className="flex flex-col">
+                           <span className="text-white/60 text-[10px] uppercase font-bold tracking-widest">Gold</span>
+                           <span className="text-accent-gold text-[20px] font-black">+{matchRewards.gold}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
