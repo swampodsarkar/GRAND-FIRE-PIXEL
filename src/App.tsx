@@ -154,6 +154,7 @@ interface Player {
   kills: number;
   character: string;
   skillReady: boolean;
+  skillUses: number;
   isCrouching: boolean;
   isProne: boolean;
   weapon: string;
@@ -641,6 +642,7 @@ export default function App() {
       kills: 0,
       character: character,
       skillReady: true,
+      skillUses: 2,
       isCrouching: false,
       isProne: false,
       weapon: "m4a1",
@@ -1045,9 +1047,23 @@ export default function App() {
     const p = state.current.localPlayer;
     if (!p || !p.isAlive) return;
     
+    // Check charges
+    if (p.skillUses <= 0) {
+      addMessage("⚠️ Skill used up! (Max 2 uses per match)");
+      return;
+    }
+    
     const now = Date.now();
-    if (now - state.current.lastSkillUse < 30000) return;
+    // Smaller Internal Cooldown: 5 seconds between uses
+    if (now - state.current.lastSkillUse < 5000) {
+      addMessage("⏳ Skill cooling down...");
+      return;
+    }
+    
     state.current.lastSkillUse = now;
+    p.skillUses--;
+    
+    addMessage(`🔥 Skill Activated! (${p.skillUses} uses left)`);
 
     switch(p.character) {
       case "axel": // +50% Speed for 5s
@@ -2791,6 +2807,11 @@ const updateLocalMovement = () => {
                  className="absolute right-[85px] bottom-[100px] w-12 h-12 bg-gradient-to-tr from-accent-gold to-yellow-600 border border-white/30 rounded-full pointer-events-auto flex items-center justify-center active:scale-90 transition-transform shadow-[0_0_15px_gold] z-[320]"
                >
                  <Target size={22} className="text-white" />
+                 {state.current.localPlayer && (
+                   <div className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-black w-5 h-5 rounded-full flex items-center justify-center border border-white shadow-lg">
+                     {state.current.localPlayer.skillUses}
+                   </div>
+                 )}
                </button>
             </div>
             
