@@ -1911,7 +1911,7 @@ const updateLocalMovement = () => {
           <div className="flex-1 flex items-center justify-center relative z-10">
             {/* Left Menu - Mobile Optimized */}
             <div className="absolute left-2 top-1/2 -translate-y-1/2 flex flex-col gap-1 sm:gap-2 w-[100px] sm:w-[140px]">
-              {['STORE', 'INVENTORY', 'EVENTS'].map((item, idx) => (
+              {['STORE', 'INVENTORY', 'EVENTS', 'LEADERBOARD'].map((item, idx) => (
                 <button 
                   key={item} 
                   onClick={() => setActiveModal(item)}
