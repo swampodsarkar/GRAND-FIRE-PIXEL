@@ -348,33 +348,10 @@ export default function App() {
       const botPool = ["Ranger", "Scout", "Sniper", "Medic", "Heavy", "Assault", "Recon", "Warrior", "Phantom", "Ghost", "Shadow", "Hunter", "Viper", "Wolf", "Hawk", "Eagle", "Falcon", "Cobra", "Dragon", "Titan"];
       
       interval = setInterval(() => {
-        const totalCount = matchmakingPlayers.length + matchmakingBots.length;
-        
-        // Trigger: If 1 or more real player joins, start 30s countdown if not already started
-        if (matchmakingPlayers.length >= 1 && dropTimer > 30) {
-          setDropTimer(30);
-        }
-
-        if (totalCount < 10) {
-          // Add bots to fill up to 10 players total
-          setMatchmakingBots(prev => {
-            if (prev.length + matchmakingPlayers.length < 10) {
-              const nextBot = botPool[prev.length % botPool.length];
-              if (!prev.includes(nextBot)) {
-                setLastJoined(nextBot);
-                // Clear notification after 1.5s
-                setTimeout(() => setLastJoined(''), 1500);
-                return [...prev, nextBot];
-              }
-            }
-            return prev;
-          });
-        }
-        
         setDropTimer(prev => {
           if (prev <= 1) {
             clearInterval(interval);
-            setTimeout(startGame, 500);
+            setTimeout(startGame, 5000); // 5s extra wait before start
             return 0;
           }
           return prev - 1;
