@@ -2482,9 +2482,15 @@ const updateLocalMovement = () => {
               </div>
             </div>
 
-            {/* Mode & Start Row - Popup style UI */}
-            <div className="flex items-end justify-between mt-0.5 gap-1.5 sm:gap-2 relative">
-              <div className="flex flex-col gap-0.5 flex-1 max-w-[140px] sm:max-w-none">
+              {/* Mode & Start Row - Popup style UI */}
+              <div className="flex items-end justify-between mt-0.5 gap-1.5 sm:gap-2 relative">
+                <button 
+                  onClick={() => setActiveModal('HELP')}
+                  className="bg-black/60 border border-white/10 rounded px-3 py-1 text-accent-gold text-[8px] sm:text-[10px] uppercase font-bold tracking-[1px] hover:bg-white/5 transition-colors"
+                >
+                  <Send size={10} className="inline mr-1 rotate-45" /> Help
+                </button>
+                <div className="flex flex-col gap-0.5 flex-1 max-w-[140px] sm:max-w-none">
                 {/* Mode Select Popup */}
                 {showModeSelect && (
                   <div className="absolute bottom-[45px] sm:bottom-[65px] left-0 w-full bg-black/90 border border-accent-gold/40 rounded p-1 sm:p-2 z-[60] flex flex-col gap-1 backdrop-blur-md animate-in fade-in slide-in-from-bottom-2">
@@ -2740,6 +2746,39 @@ const updateLocalMovement = () => {
                             <span className="text-white/60 text-[10px] uppercase tracking-widest mb-1">Total Kills</span>
                             <span className="text-white font-black text-lg">{Math.floor(playerData.exp / 15)}</span>
                         </div>
+                    </div>
+                  </div>
+                ) : activeModal === 'HELP' ? (
+                  <div className="space-y-6 text-white text-sm">
+                    <div className="bg-black/40 p-4 border border-accent-gold/20 rounded-xl">
+                      <h4 className="text-accent-gold font-black uppercase text-lg mb-3 border-b border-white/10 pb-1">Master the Controls</h4>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <p className="flex justify-between"><span className="text-white/60">Movement:</span> <span className="font-bold">Left Joystick</span></p>
+                          <p className="flex justify-between"><span className="text-white/60">Aim & Fire:</span> <span className="font-bold">Right Joystick</span></p>
+                          <p className="flex justify-between"><span className="text-white/60">Sprint:</span> <span className="font-bold">Shift / Speed Icon</span></p>
+                        </div>
+                        <div className="space-y-2">
+                          <p className="flex justify-between"><span className="text-white/60">Crouch:</span> <span className="font-bold">C / Crouch Icon</span></p>
+                          <p className="flex justify-between"><span className="text-white/60">Prone:</span> <span className="font-bold">Z / Prone Icon</span></p>
+                          <p className="flex justify-between"><span className="text-white/60">Skill:</span> <span className="font-bold">Skill Button (2/match)</span></p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-black/40 p-4 border border-white/10 rounded-xl">
+                      <h4 className="text-white font-black uppercase text-lg mb-3 border-b border-white/10 pb-1">Rules of Battle</h4>
+                      <ul className="list-disc pl-5 space-y-2 text-white/80">
+                        <li><span className="text-accent-gold font-bold">Loot:</span> Explore buildings to find Weapons, Ammo, Armor, and Medkits.</li>
+                        <li><span className="text-accent-gold font-bold">The Zone:</span> Stay inside the safe area. The Blue Zone will deplete your HP rapidly!</li>
+                        <li><span className="text-accent-gold font-bold">Vehicles:</span> Use cars and bikes for fast rotations, but remember they are loud!</li>
+                        <li><span className="text-accent-gold font-bold">Honour Score:</span> Don't leave matches early! Leaving mid-game reduces your score. Below 80, Rank matches are locked.</li>
+                        <li><span className="text-accent-gold font-bold">Booyah:</span> The last player standing wins and receives 10x Gold & EXP!</li>
+                      </ul>
+                    </div>
+
+                    <div className="text-center text-white/40 text-[10px] uppercase tracking-widest italic">
+                      Firestrike Global Tournament Standard Edition v1.0.4
                     </div>
                   </div>
                 ) : activeModal === 'CHAT' ? (
