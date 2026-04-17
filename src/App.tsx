@@ -1418,8 +1418,7 @@ export default function App() {
     // Enemies
     state.current.enemies.forEach(enemy => {
       const pos = worldToScreen(enemy.x, enemy.y);
-      const displayName = enemy.isBot ? `${enemy.name} (Bot)` : enemy.name;
-      drawHuman(ctx, pos.x, pos.y, enemy.angle, enemy.dressColor, displayName, enemy.hp, false);
+      drawHuman(ctx, pos.x, pos.y, enemy.angle, enemy.dressColor, enemy.name, enemy.hp, false);
     });
 
     // Player
