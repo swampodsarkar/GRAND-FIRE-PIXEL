@@ -1955,8 +1955,8 @@ const updateLocalMovement = () => {
                 <span className="text-[7px] sm:text-[9px] md:text-[11px] text-white/60 truncate">World | Team Invite...</span>
               </div>
 
-              {/* Menus */}
-              <div className="flex gap-1 sm:gap-2 h-full items-center">
+              {/* Menus hidden */}
+              <div className="hidden">
               </div>
             </div>
 
@@ -2125,6 +2125,23 @@ const updateLocalMovement = () => {
                           {ev.status}
                         </button>
                       </div>
+                    ))}
+                  </div>
+                ) : activeModal === 'LEADERBOARD' ? (
+                  <div className="space-y-2">
+                    {[
+                        { name: playerName, rank: playerData.level * 100 },
+                        { name: "Dragon", rank: 1250 },
+                        { name: "Titan", rank: 1100 },
+                        { name: "Shadow", rank: 950 },
+                        { name: "Viper", rank: 800 },
+                        { name: "Wolf", rank: 750 },
+                        { name: "Hawk", rank: 700 },
+                    ].sort((a,b) => b.rank - a.rank).map((ply, i) => (
+                        <div key={ply.name} className={`flex justify-between items-center text-white p-3 rounded ${ply.name === playerName ? 'bg-accent-gold/20' : 'bg-black/40'}`}>
+                          <span className="font-black text-sm">{i+1}. {ply.name}</span>
+                          <span className="text-accent-gold font-bold">{ply.rank} pts</span>
+                        </div>
                     ))}
                   </div>
                 ) : (
@@ -2472,6 +2489,51 @@ const updateLocalMovement = () => {
                   </div>
                </div>
             </div>
+
+        {/* Post-Match Screen */}
+        {hud.gameOver && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="fixed inset-0 bg-black/90 z-[500] flex flex-col items-center justify-center p-6 text-white"
+          >
+            <h1 className="text-6xl font-black italic tracking-widest mb-8 text-accent-gold">
+              {hud.place === 1 ? "BOOYAH!" : "MATCH ENDED"}
+            </h1>
+            
+            <div className="bg-bg-card p-8 rounded-2xl border border-accent-gold/30 shadow-2xl w-full max-w-sm">
+                <div className="grid grid-cols-2 gap-4 mb-8 text-center">
+                    <div className="bg-black/50 p-3 rounded">
+                        <div className="text-gray-400 text-xs">KILLS</div>
+                        <div className="text-2xl font-bold">{hud.kills}</div>
+                    </div>
+                    <div className="bg-black/50 p-3 rounded">
+                        <div className="text-gray-400 text-xs">PLACE</div>
+                        <div className="text-2xl font-bold">#{hud.place}</div>
+                    </div>
+                </div>
+
+                <div className="space-y-4 text-center">
+                   {gameMode === 'classic' ? (
+                       <>
+                        <div className="text-lg font-bold">Earned: {hud.kills * 15 + Math.max(0, (20 - hud.place) * 5)} Gold & Exp</div>
+                       </>
+                   ) : (
+                       <div className="text-lg font-bold text-accent-gold">
+                           {hud.place <= 3 ? "RANK POINTS UP!" : "RANK ADJUSTED"}
+                       </div>
+                   )}
+                </div>
+
+                <button 
+                  onClick={() => setScreen('lobby')}
+                  className="w-full mt-8 p-3 bg-accent-gold text-black font-black uppercase rounded-lg hover:brightness-110"
+                >
+                  Return to Lobby
+                </button>
+            </div>
+          </motion.div>
+        )}
 
             {/* Kill Feed - Professional Battle Royale Style */}
             <div className="absolute top-[80px] left-4 flex flex-col gap-2 pointer-events-none">
