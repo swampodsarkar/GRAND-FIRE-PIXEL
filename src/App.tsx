@@ -36,29 +36,29 @@ const WEAPONS: Record<string, Weapon> = {
 // DENSE BUILDINGS (for 3000 x 3000 Map)
 const BUILDINGS = [
   // AERODROME (Top Left Town)
-  { x: 300, y: 300, w: 200, h: 100 }, { x: 550, y: 300, w: 150, h: 200 }, { x: 300, y: 450, w: 200, h: 150 },
-  { x: 750, y: 350, w: 120, h: 120 }, { x: 400, y: 650, w: 300, h: 100 },
+  { x: 300, y: 300, w: 200, h: 100, isDoorOpen: false }, { x: 550, y: 300, w: 150, h: 200, isDoorOpen: false }, { x: 300, y: 450, w: 200, h: 150, isDoorOpen: false },
+  { x: 750, y: 350, w: 120, h: 120, isDoorOpen: false }, { x: 400, y: 650, w: 300, h: 100, isDoorOpen: false },
   
   // FORGE (Top Right Town)
-  { x: 2200, y: 300, w: 250, h: 150 }, { x: 2500, y: 250, w: 150, h: 200 }, { x: 2200, y: 500, w: 200, h: 200 },
-  { x: 2450, y: 500, w: 150, h: 150 }, { x: 2650, y: 400, w: 200, h: 250 }, { x: 2100, y: 750, w: 350, h: 100 },
+  { x: 2200, y: 300, w: 250, h: 150, isDoorOpen: false }, { x: 2500, y: 250, w: 150, h: 200, isDoorOpen: false }, { x: 2200, y: 500, w: 200, h: 200, isDoorOpen: false },
+  { x: 2450, y: 500, w: 150, h: 150, isDoorOpen: false }, { x: 2650, y: 400, w: 200, h: 250, isDoorOpen: false }, { x: 2100, y: 750, w: 350, h: 100, isDoorOpen: false },
   
   // CATHEDRAL (Bottom Left Town)
-  { x: 300, y: 2300, w: 200, h: 200 }, { x: 550, y: 2300, w: 150, h: 100 }, { x: 300, y: 2550, w: 250, h: 150 },
-  { x: 600, y: 2450, w: 200, h: 200 }, { x: 350, y: 2750, w: 150, h: 150 },
+  { x: 300, y: 2300, w: 200, h: 200, isDoorOpen: false }, { x: 550, y: 2300, w: 150, h: 100, isDoorOpen: false }, { x: 300, y: 2550, w: 250, h: 150, isDoorOpen: false },
+  { x: 600, y: 2450, w: 200, h: 200, isDoorOpen: false }, { x: 350, y: 2750, w: 150, h: 150, isDoorOpen: false },
   
   // ESTATE (Bottom Right Town)
-  { x: 2300, y: 2300, w: 150, h: 150 }, { x: 2500, y: 2300, w: 200, h: 100 }, { x: 2300, y: 2500, w: 300, h: 200 },
-  { x: 2650, y: 2450, w: 150, h: 250 }, { x: 2200, y: 2750, w: 200, h: 150 },
+  { x: 2300, y: 2300, w: 150, h: 150, isDoorOpen: false }, { x: 2500, y: 2300, w: 200, h: 100, isDoorOpen: false }, { x: 2300, y: 2500, w: 300, h: 200, isDoorOpen: false },
+  { x: 2650, y: 2450, w: 150, h: 250, isDoorOpen: false }, { x: 2200, y: 2750, w: 200, h: 150, isDoorOpen: false },
 
   // CENTRAL PEAK (Middle High-Density Area)
-  { x: 1300, y: 1300, w: 200, h: 200 }, { x: 1550, y: 1300, w: 150, h: 250 }, { x: 1300, y: 1550, w: 300, h: 150 },
-  { x: 1650, y: 1600, w: 200, h: 200 }, { x: 1400, y: 1750, w: 150, h: 150 }, { x: 1200, y: 1400, w: 100, h: 100 },
+  { x: 1300, y: 1300, w: 200, h: 200, isDoorOpen: false }, { x: 1550, y: 1300, w: 150, h: 250, isDoorOpen: false }, { x: 1300, y: 1550, w: 300, h: 150, isDoorOpen: false },
+  { x: 1650, y: 1600, w: 200, h: 200, isDoorOpen: false }, { x: 1400, y: 1750, w: 150, h: 150, isDoorOpen: false }, { x: 1200, y: 1400, w: 100, h: 100, isDoorOpen: false },
   
   // OUTSKIRT WAREHOUSES
-  { x: 1200, y: 600, w: 200, h: 150 }, { x: 1600, y: 600, w: 200, h: 150 },
-  { x: 1200, y: 2200, w: 200, h: 150 }, { x: 1600, y: 2200, w: 200, h: 150 },
-  { x: 600, y: 1400, w: 150, h: 200 }, { x: 2200, y: 1400, w: 150, h: 200 },
+  { x: 1200, y: 600, w: 200, h: 150, isDoorOpen: false }, { x: 1600, y: 600, w: 200, h: 150, isDoorOpen: false },
+  { x: 1200, y: 2200, w: 200, h: 150, isDoorOpen: false }, { x: 1600, y: 2200, w: 200, h: 150, isDoorOpen: false },
+  { x: 600, y: 1400, w: 150, h: 200, isDoorOpen: false }, { x: 2200, y: 1400, w: 150, h: 200, isDoorOpen: false },
 ];
 
 const ROADS = [
@@ -175,9 +175,11 @@ export default function App() {
     level: 1, 
     exp: 0, 
     unlockedCharacters: ['kelly'] as string[], 
-    unlockedSkins: [] as string[] 
+    unlockedSkins: [] as string[],
+    equippedSkin: 'default' as string 
   });
   const [matchRewards, setMatchRewards] = useState<{ exp: number, gold: number, rankValue: number } | null>(null);
+  const [nearBuilding, setNearBuilding] = useState(false);
   const [dropTimer, setDropTimer] = useState(10);
   const [activeModal, setActiveModal] = useState<string | null>(null);
   const [matchmakingPlayers, setMatchmakingPlayers] = useState<string[]>([]);
@@ -937,10 +939,35 @@ export default function App() {
     }
   };
 
-  const updateLocalMovement = () => {
+  const [buildingToEnter, setBuildingToEnter] = useState<any>(null);
+
+const checkProximityToBuildings = (p: Player) => {
+  let near = null;
+  for (let b of BUILDINGS) {
+    const cx = Math.max(b.x, Math.min(p.x, b.x + b.w));
+    const cy = Math.max(b.y, Math.min(p.y, b.y + b.h));
+    const dist = Math.hypot(p.x - cx, p.y - cy);
+    if (dist < 60) {
+      near = b;
+      break;
+    }
+  }
+  setNearBuilding(!!near);
+  setBuildingToEnter(near);
+};
+
+const handleEnterBuilding = () => {
+  if (buildingToEnter && !buildingToEnter.isDoorOpen) {
+    buildingToEnter.isDoorOpen = true;
+    addMessage("🚪 Door opened!");
+  }
+};
+
+const updateLocalMovement = () => {
     const p = state.current.localPlayer;
     if (!p || !p.isAlive) return;
 
+    checkProximityToBuildings(p);
     let speed = p.isCrouching ? 2.5 : (p.isProne ? 1.5 : 5);
     if (p.speedBuff) speed *= p.speedBuff;
 
@@ -1050,22 +1077,21 @@ export default function App() {
         const dist = Math.hypot(dx, dy);
         const angleToTarget = Math.atan2(dy, dx);
         
-        // Normalize Bot: Even slower movement than before
-        bot.x += Math.cos(angleToTarget) * 1.0; 
-        bot.y += Math.sin(angleToTarget) * 1.0;
+        // Normalize Bot: Aggressive movement
+        bot.x += Math.cos(angleToTarget) * 1.5; 
+        bot.y += Math.sin(angleToTarget) * 1.5;
         bot.angle = angleToTarget;
 
         const botWeapon = WEAPONS[bot.weapon];
-        // Normalize Bot: Much slower fire rate (bots panic)
-        // Bot vs Bot fire rate is even slower to preserve player count
+        // Normalize Bot: Improved fire rate
         const isBotTarget = target.id !== "player";
-        const shootDelayFactor = gameMode === 'rank' ? (isBotTarget ? 10 : 5) : (isBotTarget ? 15 : 8);
+        const shootDelayFactor = gameMode === 'rank' ? (isBotTarget ? 4 : 2) : (isBotTarget ? 6 : 3);
         
-        if (now - bot.lastShoot > ((botWeapon?.fireRate || 300) * shootDelayFactor) && dist < 180) { 
+        if (now - bot.lastShoot > ((botWeapon?.fireRate || 200) * shootDelayFactor) && dist < 300) { 
           bot.lastShoot = now;
           
-          // Normalize Bot: Add inaccuracy/randomness to bullet path
-          const inaccuracy = (Math.random() - 0.5) * 0.3; // Quite inaccurate
+          // Normalize Bot: Higher accuracy
+          const inaccuracy = (Math.random() - 0.5) * 0.1; 
           const shotAngle = bot.angle + inaccuracy;
 
           state.current.bullets.push({
@@ -1425,7 +1451,14 @@ export default function App() {
     const p = state.current.localPlayer;
     if (p && p.isAlive) {
       const pos = worldToScreen(p.x, p.y);
-      drawHuman(ctx, pos.x, pos.y, p.angle, '#FF5733', p.name, p.hp, true);
+      const clothColors: Record<string, string> = {
+        'cloth-red': '#FF5733',
+        'cloth-blue': '#3357FF',
+        'cloth-green': '#33FF57',
+        'cloth-purple': '#A133FF'
+      };
+      const playerColor = playerData.equippedSkin === 'default' ? '#FF5733' : (clothColors[playerData.equippedSkin] || '#3357FF');
+      drawHuman(ctx, pos.x, pos.y, p.angle, playerColor, p.name, p.hp, true);
       
       if (p.shield) {
         ctx.strokeStyle = 'rgba(224, 222, 215, 0.5)';
@@ -1689,6 +1722,15 @@ export default function App() {
     }
   };
 
+  const handleEquip = (skinId: string) => {
+    const newPlayerData = {
+      ...playerData,
+      equippedSkin: skinId
+    };
+    setPlayerData(newPlayerData);
+    set(ref(db, 'users/' + playerName), newPlayerData);
+  };
+
   // --- Render ---
   return (
     <div className="w-full h-screen overflow-hidden bg-bg-deep text-text-primary font-sans select-none">
@@ -1781,7 +1823,7 @@ export default function App() {
           <div className="flex-1 flex items-center justify-center relative z-10">
             {/* Left Menu - Mobile Optimized */}
             <div className="absolute left-2 top-1/2 -translate-y-1/2 flex flex-col gap-1 sm:gap-2 w-[100px] sm:w-[140px]">
-              {['STORE', 'LUCK ROYALE', 'BOOYAH PASS', 'MISSIONS', 'EVENTS'].map((item, idx) => (
+              {['STORE', 'INVENTORY', 'EVENTS'].map((item, idx) => (
                 <button 
                   key={item} 
                   onClick={() => setActiveModal(item)}
@@ -1827,18 +1869,6 @@ export default function App() {
 
               {/* Menus */}
               <div className="flex gap-1 sm:gap-2 h-full items-center">
-                <button onClick={() => setActiveModal('WEAPON')} className="flex flex-col items-center gap-0.5 text-white/80 hover:text-white">
-                  <div className="w-7 h-5 sm:w-10 sm:h-8 bg-black/60 border border-white/10 rounded flex items-center justify-center backdrop-blur-sm"><Crosshair size={12} className="sm:w-[16px] sm:h-[16px]" /></div>
-                  <span className="text-[5px] sm:text-[8px] uppercase font-bold">Weapon</span>
-                </button>
-                <button onClick={() => setActiveModal('PRESET')} className="flex flex-col items-center gap-0.5 text-white/80 hover:text-white">
-                  <div className="w-7 h-5 sm:w-10 sm:h-8 bg-black/60 border border-white/10 rounded flex items-center justify-center backdrop-blur-sm"><User size={12} className="sm:w-[16px] sm:h-[16px]" /></div>
-                  <span className="text-[5px] sm:text-[8px] uppercase font-bold">Preset</span>
-                </button>
-                <button onClick={() => setActiveModal('LAB')} className="flex flex-col items-center gap-0.5 text-white/80 hover:text-white">
-                  <div className="w-7 h-5 sm:w-10 sm:h-8 bg-black/60 border border-white/10 rounded flex items-center justify-center backdrop-blur-sm"><Beaker size={12} className="sm:w-[16px] sm:h-[16px]" /></div>
-                  <span className="text-[5px] sm:text-[8px] uppercase font-bold">Lab</span>
-                </button>
               </div>
             </div>
 
@@ -1908,7 +1938,7 @@ export default function App() {
               <h3 className="text-accent-gold font-serif text-[24px] uppercase tracking-[2px] mb-4 text-center shrink-0">{activeModal}</h3>
               
               <div className="flex-1 overflow-y-auto min-h-0 text-left mb-6 pr-2">
-                {activeModal === 'STORE' ? (
+                {activeModal === 'STORE' ? (                
                   <div className="space-y-6">
                     <div className="flex justify-between items-center bg-black/40 p-3 border border-white/10 rounded">
                       <span className="text-white text-sm">Your Gold: <span className="text-accent-gold font-bold">{playerData.gold}</span></span>
@@ -1934,22 +1964,57 @@ export default function App() {
                     </div>
 
                     <div>
-                      <h4 className="text-white font-bold uppercase tracking-[2px] mb-3 text-sm border-b border-white/10 pb-1">Gun Skins (Customs)</h4>
+                      <h4 className="text-white font-bold uppercase tracking-[2px] mb-3 text-sm border-b border-white/10 pb-1">Clothing Skins</h4>
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                         {[
-                          { id: 'm4a1-gold', name: 'Golden M4A1', cost: 1000, type: 'gold', boost: '+10% DMG' },
-                          { id: 'awm-dragon', name: 'Dragon AWM', cost: 500, type: 'diamonds', boost: '+20% Range' },
-                          { id: 'mp5-toxic', name: 'Toxic MP5', cost: 800, type: 'gold', boost: '+15% Fire Rate'}
+                          { id: 'cloth-red', name: 'Red Suit', cost: 2, type: 'gold', color: '#FF5733' },
+                          { id: 'cloth-blue', name: 'Blue Suit', cost: 2, type: 'gold', color: '#3357FF' },
+                          { id: 'cloth-green', name: 'Green Suit', cost: 3, type: 'gold', color: '#33FF57' },
+                          { id: 'cloth-purple', name: 'Purple Suit', cost: 3, type: 'gold', color: '#A133FF' }
                         ].map(skin => (
-                          <div key={skin.id} className="border border-white/10 bg-black/40 p-3 rounded flex flex-col justify-between relative overflow-hidden">
-                            <div className="absolute -right-6 top-3 bg-red-600 text-white text-[8px] font-bold py-0.5 px-6 rotate-45">{skin.boost}</div>
-                            <div>
-                               <h5 className="text-white font-bold mb-1 truncate pr-4">{skin.name}</h5>
-                               <p className={`${skin.type === 'gold' ? 'text-accent-gold' : 'text-cyan-400'} text-xs font-bold mb-3`}>{skin.cost} {skin.type}</p>
+                          <div key={skin.id} className="border border-white/10 bg-black/40 p-3 rounded flex flex-col justify-between">
+                            <div className="flex items-center gap-2 mb-2">
+                               <div className="w-4 h-4 rounded-full" style={{ backgroundColor: skin.color }}></div>
+                               <h5 className="text-white font-bold truncate">{skin.name}</h5>
                             </div>
+                            <p className="text-accent-gold text-xs font-bold mb-3">{skin.cost} Gold</p>
                             {playerData.unlockedSkins.includes(skin.id) 
-                              ? <button disabled className="bg-white/20 text-white/50 w-full py-1.5 text-xs font-bold uppercase rounded cursor-not-allowed">Owned</button>
-                              : <button onClick={() => handleBuy('skin', skin.id, skin.cost, skin.type as any)} className="bg-accent-gold text-black w-full py-1.5 text-xs font-bold uppercase rounded hover:brightness-110">Buy</button>
+                              ? (playerData.equippedSkin === skin.id 
+                                  ? <button disabled className="bg-green-600/50 text-white w-full py-1.5 text-xs font-bold uppercase rounded cursor-default">Equipped</button>
+                                  : <button onClick={() => handleEquip(skin.id)} className="bg-blue-600 text-white w-full py-1.5 text-xs font-bold uppercase rounded hover:brightness-110">Equip</button>
+                                )
+                               : <button onClick={() => handleBuy('skin', skin.id, skin.cost, 'gold')} className="bg-accent-gold text-black w-full py-1.5 text-xs font-bold uppercase rounded hover:brightness-110">Buy</button>
+                            }
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ) : activeModal === 'INVENTORY' ? (
+                  <div className="space-y-6">
+                    <div>
+                      <h4 className="text-white font-bold uppercase tracking-[2px] mb-3 text-sm border-b border-white/10 pb-1">Your Characters</h4>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                        {playerData.unlockedCharacters.map(char => (
+                          <div key={char} className="border border-white/10 bg-black/40 p-3 rounded text-center">
+                            <h5 className="text-white font-bold capitalize">{char}</h5>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <h4 className="text-white font-bold uppercase tracking-[2px] mb-3 text-sm border-b border-white/10 pb-1">Your Skins</h4>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                        {[
+                          { id: 'm4a1-gold', name: 'Golden M4A1' },
+                          { id: 'awm-dragon', name: 'Dragon AWM' },
+                          { id: 'mp5-toxic', name: 'Toxic MP5' }
+                        ].filter(skin => playerData.unlockedSkins.includes(skin.id)).map(skin => (
+                          <div key={skin.id} className="border border-white/10 bg-black/40 p-3 rounded flex flex-col justify-between">
+                            <h5 className="text-white font-bold mb-3">{skin.name}</h5>
+                            {playerData.equippedSkin === skin.id 
+                                  ? <button disabled className="bg-green-600/50 text-white w-full py-1.5 text-xs font-bold uppercase rounded cursor-default">Equipped</button>
+                                  : <button onClick={() => handleEquip(skin.id)} className="bg-blue-600 text-white w-full py-1.5 text-xs font-bold uppercase rounded hover:brightness-110">Equip</button>
                             }
                           </div>
                         ))}
@@ -2305,6 +2370,9 @@ export default function App() {
             
             {/* HUD Bottom Center: HP & Armor Bar */}
             <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-[200px] sm:w-[300px] flex flex-col items-center gap-1">
+               {nearBuilding && (
+                   <button onClick={handleEnterBuilding} className="bg-accent-gold/90 text-black px-4 py-2 rounded-full font-bold text-xs uppercase animate-bounce">Enter House</button>
+               )}
                {/* Armor Bar */}
                {hud.armor > 0 && (
                  <div className="w-full h-1 bg-black/40 rounded-full overflow-hidden border border-white/10">
@@ -2343,8 +2411,10 @@ export default function App() {
                          k.weapon === 'environment' ? <CloudRain size={12} className="text-white/40" /> :
                          <Sword size={12} className="text-accent-gold" />}
                       </div>
+                      
+                      <Skull size={12} className="text-red-500" />
 
-                      <span className="text-white/90 font-bold uppercase tracking-[1px] text-[10px]">
+                      <span className={`font-black uppercase tracking-[1px] text-[10px] ${k.victim === playerData.username ? 'text-red-500' : 'text-white'}`}>
                         {k.victim}
                       </span>
                     </div>
