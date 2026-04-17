@@ -939,8 +939,6 @@ export default function App() {
     }
   };
 
-  const [buildingToEnter, setBuildingToEnter] = useState<any>(null);
-
 const checkProximityToBuildings = (p: Player) => {
   let near = null;
   for (let b of BUILDINGS) {
@@ -948,19 +946,15 @@ const checkProximityToBuildings = (p: Player) => {
     const cy = Math.max(b.y, Math.min(p.y, b.y + b.h));
     const dist = Math.hypot(p.x - cx, p.y - cy);
     if (dist < 60) {
+      if (!b.isDoorOpen) {
+        b.isDoorOpen = true;
+        addMessage("🚪 Automatically entered house!");
+      }
       near = b;
       break;
     }
   }
   setNearBuilding(!!near);
-  setBuildingToEnter(near);
-};
-
-const handleEnterBuilding = () => {
-  if (buildingToEnter && !buildingToEnter.isDoorOpen) {
-    buildingToEnter.isDoorOpen = true;
-    addMessage("🚪 Door opened!");
-  }
 };
 
 const updateLocalMovement = () => {
@@ -2370,9 +2364,6 @@ const updateLocalMovement = () => {
             
             {/* HUD Bottom Center: HP & Armor Bar */}
             <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-[200px] sm:w-[300px] flex flex-col items-center gap-1">
-               {nearBuilding && (
-                   <button onClick={handleEnterBuilding} className="bg-accent-gold/90 text-black px-4 py-2 rounded-full font-bold text-xs uppercase animate-bounce">Enter House</button>
-               )}
                {/* Armor Bar */}
                {hud.armor > 0 && (
                  <div className="w-full h-1 bg-black/40 rounded-full overflow-hidden border border-white/10">
