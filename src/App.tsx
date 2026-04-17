@@ -350,15 +350,15 @@ export default function App() {
       interval = setInterval(() => {
         const totalCount = matchmakingPlayers.length + matchmakingBots.length;
         
-        // Trigger: If 2 or more real players join, start 10s countdown
-        if (matchmakingPlayers.length >= 2 && dropTimer > 10) {
-          setDropTimer(10);
+        // Trigger: If 1 or more real player joins, start 30s countdown if not already started
+        if (matchmakingPlayers.length >= 1 && dropTimer > 30) {
+          setDropTimer(30);
         }
 
-        if (totalCount < 20) {
-          // Add bots rapidly
+        if (totalCount < 10) {
+          // Add bots to fill up to 10 players total
           setMatchmakingBots(prev => {
-            if (prev.length + matchmakingPlayers.length < 20) {
+            if (prev.length + matchmakingPlayers.length < 10) {
               const nextBot = botPool[prev.length % botPool.length];
               if (!prev.includes(nextBot)) {
                 setLastJoined(nextBot);
@@ -1106,7 +1106,7 @@ const updateLocalMovement = () => {
             dx: Math.cos(shotAngle) * 12,
             dy: Math.sin(shotAngle) * 12,
             ownerId: bot.id,
-            damage: (botWeapon?.damage || 20) * (gameMode === 'classic' ? 0.7 : 0.9) // Lower damage in classic
+            damage: (botWeapon?.damage || 20) * (gameMode === 'classic' ? 1.0 : 1.5) // Higher damage in rank
           });
         }
       } else {
