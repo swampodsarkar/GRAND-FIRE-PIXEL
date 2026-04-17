@@ -1791,10 +1791,10 @@ const updateLocalMovement = () => {
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 1.1 }}
-            className="fixed inset-0 bg-bg-deep flex justify-center items-center z-[200]"
+            className="fixed inset-0 bg-gradient-to-br from-indigo-900 via-purple-900 to-black flex justify-center items-center z-[200]"
           >
           <div className="fixed top-4 left-6 z-[201]">
-            <h1 className="text-[20px] sm:text-[28px] text-white font-black italic tracking-[2px] uppercase drop-shadow-[0_4px_12px_rgba(212,175,55,0.4)]">FIRESTRIKEx</h1>
+            <h1 className="text-[16px] sm:text-[20px] text-white font-black italic tracking-[1px] uppercase drop-shadow-[0_2px_6px_rgba(212,175,55,0.4)]">FIRESTRIKEx</h1>
           </div>
           <div className="bg-bg-card p-4 sm:p-6 text-center border border-accent-gold/20 w-[90%] max-w-[300px] max-h-[85vh] rounded-[24px] shadow-[0_10px_40px_rgba(0,0,0,0.8)] relative overflow-y-auto">
             <div className="absolute top-0 left-0 w-full h-[4px] bg-gradient-to-r from-transparent via-accent-gold to-transparent"></div>
