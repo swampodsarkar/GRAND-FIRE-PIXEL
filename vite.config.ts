@@ -17,32 +17,8 @@ export default defineConfig(({mode}) => {
     },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
-      // Do not modify—file watching is disabled to prevent flickering during agent edits.
+      // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
     },
-    build: {
-      minify: 'terser',
-      terserOptions: {
-        compress: {
-          drop_console: false, // Keep console for debugging
-          drop_debugger: true
-        }
-      },
-      rollupOptions: {
-        output: {
-          manualChunks: {
-            vendor: ['react', 'react-dom'],
-            firebase: ['firebase/app', 'firebase/database'],
-            ui: ['lucide-react', 'motion/react']
-          }
-        }
-      },
-      target: 'es2015', // Better Android compatibility
-      cssCodeSplit: true,
-      assetsInlineLimit: 4096,
-    },
-    optimizeDeps: {
-      include: ['firebase/app', 'firebase/database', 'react', 'react-dom']
-    }
   };
 });
