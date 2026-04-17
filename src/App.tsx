@@ -253,6 +253,7 @@ export default function App() {
   const [gameMode, setGameMode] = useState<'classic' | 'rank'>('classic');
   const [character, setCharacter] = useState('axel');
   const [matchTimer, setMatchTimer] = useState(30);
+  const [currentMatchId, setCurrentMatchId] = useState<string | null>(null);
   const [dropPoint, setDropPoint] = useState({ x: 1500, y: 1500 });
   const [playerData, setPlayerData] = useState({ 
     gold: 500, 
@@ -463,15 +464,19 @@ export default function App() {
     
     if (!lobbySnapshot.exists()) {
       // First player initializes the room
+      const mId = 'match_' + Date.now();
       set(lobbyRef, {
         players: [playerName],
         timer: 30,
         bots: [],
-        status: 'waiting'
+        status: 'waiting',
+        matchId: mId
       });
+      setCurrentMatchId(mId);
     } else {
       // Subsequent players join existing lobby
       const data = lobbySnapshot.val();
+      setCurrentMatchId(data.matchId || 'match_' + Date.now());
       update(lobbyRef, {
         players: [...data.players, playerName]
       });
@@ -488,6 +493,7 @@ export default function App() {
           setMatchmakingPlayers(data.players || []);
           setMatchTimer(data.timer || 30);
           setMatchmakingBots(data.bots || []);
+          if (data.matchId) setCurrentMatchId(data.matchId);
           
           if (data.status === 'drop_selection') {
             setScreen('drop_selection');
@@ -534,6 +540,12 @@ export default function App() {
                  const newActivePlayers = activePlayers.filter((pName: string) => {
                     return (now - (presences[pName] || 0)) < 20000;
                  });
+
+                 if (newActivePlayers.length === 0) {
+                    // No active players left, delete the lobby to reset it
+                    set(lobbyRef, null);
+                    return;
+                 }
 
                  const updates: any = { players: newActivePlayers };
                  
@@ -586,6 +598,73 @@ export default function App() {
     }
     return () => clearInterval(interval);
   }, [screen, matchTimer]);
+
+  // In-match Room Lifecycle & Heartbeat
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (screen === 'game' && currentMatchId) {
+      const roomRef = ref(db, `matches/${currentMatchId}`);
+      const myPresenceRef = ref(db, `matches/${currentMatchId}/players/${playerName}`);
+      
+      const updatePresence = (alive: boolean) => {
+        set(myPresenceRef, {
+          name: playerName,
+          alive: alive,
+          lastSeen: Date.now()
+        });
+      };
+
+      // Initial Join
+      updatePresence(true);
+
+      interval = setInterval(() => {
+        const isCurrentlyAlive = state.current.localPlayer?.isAlive ?? false;
+        updatePresence(isCurrentlyAlive);
+
+        // Check overall room health (logic handled by the first player in the room list)
+        get(roomRef).then(snap => {
+          if (snap.exists()) {
+            const data = snap.val();
+            const players = data.players || {};
+            const playerNames = Object.keys(players);
+            
+            // Leader Selection: First alphabetically active player
+            let activeLeader = null;
+            const now = Date.now();
+            
+            for (const p of playerNames.sort()) {
+              if (now - (players[p].lastSeen || 0) < 20000) {
+                activeLeader = p;
+                break;
+              }
+            }
+
+            if (activeLeader === playerName) {
+               // Check if ANY real player is still alive
+               const anyRealPlayerAlive = playerNames.some(p => {
+                  const pData = players[p];
+                  const isRecentlySeen = (now - (pData.lastSeen || 0)) < 20000;
+                  return pData.alive && isRecentlySeen;
+               });
+
+               if (!anyRealPlayerAlive) {
+                  // No real survivors left + everyone disconnected or dead
+                  // Delete the room to keep Firebase clean
+                  set(roomRef, null);
+               }
+            }
+          }
+        });
+      }, 2000);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+      if (screen === 'game' && currentMatchId) {
+         // Mark as dead/left on disconnect
+         set(ref(db, `matches/${currentMatchId}/players/${playerName}/alive`), false);
+      }
+    };
+  }, [screen, currentMatchId, playerName]);
 
   const handleMapClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -655,6 +734,7 @@ export default function App() {
     state.current.safeZone = { x: 1500, y: 1500, radius: 800, shrinkTimer: 60, nextRadius: 600 };
     state.current.zoneDamage = 5;
     state.current.matchTime = 0;
+    state.current.rankPoints = (Number(playerData.exp) || 0) + (Number(playerData.level) * 100);
 
     // Generate Enemies
     const totalPlayers = 20;
@@ -930,15 +1010,19 @@ export default function App() {
       expGained = 50 + (p.kills * 20) + Math.max(0, (20 - place) * 10);
       goldGained = 500 + (p.kills * 15) + Math.max(0, (20 - place) * 5); // Boosted base gold by 500
       
-      const newExp = playerData.exp + expGained;
+      const currentExp = Number(playerData.exp) || 0;
+      const currentGold = Number(playerData.gold) || 0;
+      const currentHonour = Number(playerData.honourScore) || 100;
+
+      const newExp = currentExp + expGained;
       const newLevel = Math.floor(newExp / 1000) + 1;
-      const newHonour = Math.min(100, (playerData.honourScore || 100) + 1); // Regain honour
+      const newHonour = Math.min(100, currentHonour + 1); // Regain honour
       
       const newPlayerData = {
         ...playerData, 
         exp: newExp, 
         level: newLevel,
-        gold: playerData.gold + goldGained,
+        gold: currentGold + goldGained,
         honourScore: newHonour,
         inMatch: false
       };
@@ -981,15 +1065,19 @@ export default function App() {
       expGained = 500 + p.kills * 50;
       goldGained = 1500 + p.kills * 25; // Massive boost for placing 1st in classic
       
-      const newExp = playerData.exp + expGained;
+      const currentExp = Number(playerData.exp) || 0;
+      const currentGold = Number(playerData.gold) || 0;
+      const currentHonour = Number(playerData.honourScore) || 100;
+
+      const newExp = currentExp + expGained;
       const newLevel = Math.floor(newExp / 1000) + 1;
-      const newHonour = Math.min(100, (playerData.honourScore || 100) + 2); // Regain honour more for booyah
+      const newHonour = Math.min(100, currentHonour + 2); // Regain honour more for booyah
       
       const newPlayerData = {
         ...playerData, 
         exp: newExp, 
         level: newLevel,
-        gold: playerData.gold + goldGained,
+        gold: currentGold + goldGained,
         honourScore: newHonour,
         inMatch: false
       };
@@ -2902,12 +2990,22 @@ const updateLocalMovement = () => {
 
                 <div className="space-y-4 text-center">
                    {gameMode === 'classic' ? (
-                       <>
-                        <div className="text-lg font-bold">Earned: {hud.kills * 15 + Math.max(0, (20 - hud.place) * 5)} Gold & Exp</div>
-                       </>
+                       <div className="flex flex-col gap-2">
+                         <div className="flex justify-between items-center text-accent-gold font-black bg-black/40 p-2 rounded border border-white/5">
+                            <span>EXP EARNED</span>
+                            <span>+{matchRewards?.exp || 0}</span>
+                         </div>
+                         <div className="flex justify-between items-center text-yellow-500 font-black bg-black/40 p-2 rounded border border-white/5">
+                            <span>GOLD EARNED</span>
+                            <span>+{matchRewards?.gold || 0}</span>
+                         </div>
+                       </div>
                    ) : (
-                       <div className="text-lg font-bold text-accent-gold">
-                           {hud.place <= 3 ? "RANK POINTS UP!" : "RANK ADJUSTED"}
+                       <div className="flex flex-col gap-2 italic uppercase font-black text-center">
+                          <div className={Number(matchRewards?.rankValue || 0) >= 0 ? 'text-green-400' : 'text-red-500'}>
+                             RANK {Number(matchRewards?.rankValue || 0) >= 0 ? '+' : ''}{matchRewards?.rankValue}
+                          </div>
+                          <div className="text-[10px] text-white/40">Next Rank in {1000 - ((playerData.exp + (matchRewards?.exp || 0)) % 1000)} pts</div>
                        </div>
                    )}
                 </div>
