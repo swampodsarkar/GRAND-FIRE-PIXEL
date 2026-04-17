@@ -297,14 +297,21 @@ export default function App() {
     setScreen('lobby');
   };
 
-  const startMatchmaking = () => {
+  const startMatchmaking = async () => {
     setScreen('matchmaking');
-    setMatchTimer(30);
+    
+    // Check if anyone else is already in the queue
+    const matchRef = ref(db, 'matchmaking');
+    const snapshot = await get(matchRef);
+    if (!snapshot.exists()) {
+      setMatchTimer(30);
+    }
+    
     setMatchmakingBots([]);
     
     // Join matchmaking queue
-    const matchRef = ref(db, 'matchmaking/' + playerName);
-    set(matchRef, { name: playerName, joinedAt: Date.now() });
+    const playerMatchRef = ref(db, 'matchmaking/' + playerName);
+    set(playerMatchRef, { name: playerName, joinedAt: Date.now() });
   };
 
   // --- Matchmaking Sync ---
