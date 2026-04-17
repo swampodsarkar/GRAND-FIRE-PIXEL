@@ -371,12 +371,13 @@ export default function App() {
   };
 
   const [isRespawning, setIsRespawning] = useState(false);
+  const [respawnUsed, setRespawnUsed] = useState(false);
 
   const handlePlayerDeath = () => {
-    // Check if player can respawn (e.g. within 20s if it's early or first time)
-    // The user requested: "USAER AKBAR NMORLE 20 SEC MODEH AYTO REVIE PABE TOKN DROP ZONE ABAR ASBE"
-    if (!isRespawning) {
+    // Check if player can respawn (Only once per match)
+    if (!respawnUsed) {
       setIsRespawning(true);
+      setRespawnUsed(true);
       setScreen('drop_selection');
       setDropTimer(20);
       addMessage("⚠️ YOU DIED! Respawning in 20s...");
@@ -403,6 +404,8 @@ export default function App() {
     }
 
     setScreen('game');
+    setRespawnUsed(false);
+    setIsRespawning(false);
     
     // Clear matchmaking queue for this player
     const matchRef = ref(db, 'matchmaking/' + playerName);
@@ -700,6 +703,9 @@ export default function App() {
     
     setMatchRewards({ exp: expGained, gold: goldGained, rankValue: rankChange });
 
+    setRespawnUsed(false);
+    setIsRespawning(false);
+
     setTimeout(() => {
       setScreen('lobby');
       state.current.isInGame = false;
@@ -741,6 +747,9 @@ export default function App() {
     }
     
     setMatchRewards({ exp: expGained, gold: goldGained, rankValue: rankChange });
+
+    setRespawnUsed(false);
+    setIsRespawning(false);
 
     setTimeout(() => {
       setScreen('lobby');
