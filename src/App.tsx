@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Settings, Mail, Battery, Wifi, MessageSquare, Users, Crosshair, User, Beaker, Zap, Shield, Activity, Luggage, Skull, Sword, Map, Target, CloudRain, X, ShoppingCart, Package, Calendar, Trophy, Send } from 'lucide-react';
+import { Settings, Mail, Battery, Wifi, MessageSquare, Users, Crosshair, User, Beaker, Zap, Shield, Activity, Luggage, Skull, Sword, Map, Target, CloudRain, X, ShoppingCart, Package, Calendar, Trophy, Send, Lock } from 'lucide-react';
 import { ref, set, onValue, get, update } from 'firebase/database';
 import { db, auth } from './firebase';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
@@ -259,7 +259,9 @@ export default function App() {
     exp: 0, 
     unlockedCharacters: ['axel'] as string[], 
     unlockedSkins: [] as string[],
-    equippedSkin: 'default' as string 
+    equippedSkin: 'default' as string,
+    honourScore: 100,
+    inMatch: false
   });
   const [matchRewards, setMatchRewards] = useState<{ exp: number, gold: number, rankValue: number } | null>(null);
   const [nearBuilding, setNearBuilding] = useState(false);
@@ -393,14 +395,34 @@ export default function App() {
       const snapshot = await get(playerRef);
       if (snapshot.exists()) {
         const data = snapshot.val();
-        setPlayerData({
+        
+        let newHonour = data.honourScore !== undefined ? data.honourScore : 100;
+        let penalize = false;
+        
+        // Force quit detection: If they were previously in a match without cleanly exiting
+        if (data.inMatch) {
+          newHonour = Math.max(0, newHonour - 5);
+          penalize = true;
+          setTimeout(() => addMessage("⚠️ Penalty: Honour Score decreased for abandoning previous match!"), 1000);
+        }
+        
+        const finalData = {
           ...data,
           unlockedCharacters: data.unlockedCharacters || ['axel'],
           unlockedSkins: data.unlockedSkins || [],
-          exp: data.exp || 0
-        });
+          exp: data.exp || 0,
+          honourScore: newHonour,
+          inMatch: false
+        };
+        
+        setPlayerData(finalData);
+        
+        if (penalize) {
+          update(playerRef, { honourScore: newHonour, inMatch: false });
+        }
+        
       } else {
-        const newData = { gold: 500, diamonds: 0, level: 1, exp: 0, unlockedCharacters: ['axel'], unlockedSkins: [] };
+        const newData = { gold: 500, diamonds: 0, level: 1, exp: 0, unlockedCharacters: ['axel'], unlockedSkins: [], honourScore: 100, inMatch: false };
         await set(playerRef, newData);
         setPlayerData(newData);
       }
@@ -455,28 +477,60 @@ export default function App() {
     }
   }, [screen, db]);
 
-  // Master timer logic (leader handles updates)
+  // Master timer & Heartbeat logic
   useEffect(() => {
     let interval: NodeJS.Timeout;
     if (screen === 'matchmaking') {
+      // 1. Maintain my own presence heartbeat
+      const presenceRef = ref(db, `matchmaking/presence/${playerName}`);
+      const updatePresence = () => set(presenceRef, Date.now());
+      updatePresence(); // immediate first
+      
       interval = setInterval(() => {
+        updatePresence();
+
         const lobbyRef = ref(db, 'matchmaking/lobby');
-        // Only run timer update if player is the first in queue (leader)
+        // Only run timer & cleanup updates if player is the first in queue (leader)
         if (matchmakingPlayers[0] === playerName) {
-           get(lobbyRef).then((snapshot) => {
-             if (snapshot.exists()) {
-               const data = snapshot.val();
-               if (data.timer > 0) {
-                 update(lobbyRef, { timer: Math.max(0, data.timer - 1) });
-               } else if (data.status !== 'drop_selection') {
-                 update(lobbyRef, { status: 'drop_selection' });
+           // Also check presence of all players
+           get(ref(db, 'matchmaking/presence')).then(presenceSnap => {
+             const presences = presenceSnap.val() || {};
+             const now = Date.now();
+             
+             get(lobbyRef).then((snapshot) => {
+               if (snapshot.exists()) {
+                 const data = snapshot.val();
+                 let activePlayers = data.players || [];
+                 
+                 // Remove players who haven't updated presence in 20+ seconds
+                 activePlayers = activePlayers.filter((pName: string) => {
+                    const lastActive = presences[pName] || 0;
+                    return (now - lastActive) < 20000;
+                 });
+
+                 // If leader was removed, someone else becomes leader next tick
+                 const updates: any = { players: activePlayers };
+                 
+                 if (data.timer > 0) {
+                   updates.timer = Math.max(0, data.timer - 1);
+                 } else if (data.status !== 'drop_selection') {
+                   updates.status = 'drop_selection';
+                 }
+                 
+                 update(lobbyRef, updates);
                }
-             }
+             });
            });
         }
       }, 1000);
     }
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      if (screen !== 'matchmaking' && screen !== 'drop_selection' && screen !== 'game') {
+        // If leaving matchmaking manually, immediately clear presence
+        set(ref(db, `matchmaking/presence/${playerName}`), null);
+      }
+    };
   }, [screen, matchmakingPlayers, playerName]);
 
   useEffect(() => {
@@ -542,6 +596,9 @@ export default function App() {
     setRespawnUsed(false);
     setIsRespawning(false);
     
+    // Flag player as in match to track force quits
+    update(ref(db, 'users/' + playerName), { inMatch: true });
+
     // Clear matchmaking queue for this player
     const matchRef = ref(db, 'matchmaking/' + playerName);
     set(matchRef, null);
@@ -839,18 +896,24 @@ export default function App() {
     if (gameMode === 'rank') {
       rankChange = Math.floor(p.kills * 10 - place * 2 + 10);
       state.current.rankPoints = Math.max(0, state.current.rankPoints + rankChange);
+      
+      update(ref(db, 'users/' + playerName), { inMatch: false });
+      setPlayerData(prev => ({ ...prev, inMatch: false }));
     } else {
       expGained = 50 + (p.kills * 20) + Math.max(0, (20 - place) * 10);
       goldGained = 500 + (p.kills * 15) + Math.max(0, (20 - place) * 5); // Boosted base gold by 500
       
       const newExp = playerData.exp + expGained;
       const newLevel = Math.floor(newExp / 1000) + 1;
+      const newHonour = Math.min(100, (playerData.honourScore || 100) + 1); // Regain honour
       
       const newPlayerData = {
         ...playerData, 
         exp: newExp, 
         level: newLevel,
-        gold: playerData.gold + goldGained
+        gold: playerData.gold + goldGained,
+        honourScore: newHonour,
+        inMatch: false
       };
       setPlayerData(newPlayerData);
       set(ref(db, 'users/' + playerName), newPlayerData);
@@ -884,18 +947,24 @@ export default function App() {
     if (gameMode === 'rank') {
       rankChange = 50 + p.kills * 15;
       state.current.rankPoints += rankChange;
+      
+      update(ref(db, 'users/' + playerName), { inMatch: false });
+      setPlayerData(prev => ({ ...prev, inMatch: false }));
     } else {
       expGained = 500 + p.kills * 50;
       goldGained = 1500 + p.kills * 25; // Massive boost for placing 1st in classic
       
       const newExp = playerData.exp + expGained;
       const newLevel = Math.floor(newExp / 1000) + 1;
+      const newHonour = Math.min(100, (playerData.honourScore || 100) + 2); // Regain honour more for booyah
       
       const newPlayerData = {
         ...playerData, 
         exp: newExp, 
         level: newLevel,
-        gold: playerData.gold + goldGained
+        gold: playerData.gold + goldGained,
+        honourScore: newHonour,
+        inMatch: false
       };
       setPlayerData(newPlayerData);
       set(ref(db, 'users/' + playerName), newPlayerData);
@@ -2139,11 +2208,34 @@ const updateLocalMovement = () => {
                     >
                       Classic Match (Solo)
                     </button>
+                    
                     <button 
-                      onClick={() => { setGameMode('rank'); setShowModeSelect(false); startMatchmaking(); }}
-                      className="w-full p-2 text-[10px] sm:text-[12px] uppercase font-bold text-white hover:bg-red-600 border border-white/5 rounded transition-all"
+                      onClick={() => { 
+                        if (playerData.level < 8) {
+                          alert('Rank mode unlocks at Level 8!');
+                        } else if ((playerData.honourScore || 100) < 80) {
+                          alert(`Honour score too low: ${playerData.honourScore}/100. Must be 80+ to play Rank.`);
+                        } else {
+                          setGameMode('rank'); 
+                          setShowModeSelect(false); 
+                          startMatchmaking(); 
+                        }
+                      }}
+                      className={`w-full p-2 text-[10px] sm:text-[12px] uppercase font-bold transition-all border border-white/5 rounded flex flex-col items-center justify-center gap-1 ${
+                        playerData.level < 8 || (playerData.honourScore || 100) < 80 
+                          ? 'bg-black/50 text-white/30 cursor-not-allowed' 
+                          : 'text-white hover:bg-red-600'
+                      }`}
                     >
-                      Rank Match (Solo)
+                      <div className="flex items-center gap-1">
+                        Rank Match (Solo)
+                        {(playerData.level < 8 || (playerData.honourScore || 100) < 80) && <Lock size={12} className="text-red-500" />}
+                      </div>
+                      <div className="text-[8px] sm:text-[9px] font-normal text-white/50 lowercase tracking-wider">
+                        {playerData.level < 8 ? 'Requires Level 8' : (
+                          (playerData.honourScore || 100) < 80 ? 'Requires 80+ Honour' : ''
+                        )}
+                      </div>
                     </button>
                   </div>
                 )}
@@ -2341,6 +2433,19 @@ const updateLocalMovement = () => {
                             <span className="text-white font-black text-lg text-accent-gold">{playerData.level > 10 ? 'Heroic' : playerData.level > 5 ? 'Diamond' : 'Bronze'}</span>
                             <span className="text-white/40 text-[10px]">Points: {playerData.level * 100 + playerData.exp}</span>
                         </div>
+                        <div className="bg-black/40 p-3 rounded-lg border border-white/10 flex flex-col items-center justify-center text-center relative overflow-hidden">
+                            <div className="absolute inset-0 bg-gradient-to-t from-red-500/10 to-transparent" style={{ opacity: ((playerData.honourScore || 100) < 80) ? 1 : 0 }} />
+                            <span className="text-white/60 text-[10px] uppercase tracking-widest mb-1">Honour Score</span>
+                            <span className={`font-black text-lg ${
+                              (playerData.honourScore || 100) >= 90 ? 'text-green-400' : 
+                              (playerData.honourScore || 100) >= 80 ? 'text-yellow-400' : 'text-red-500'
+                            }`}>
+                              {playerData.honourScore || 100} / 100
+                            </span>
+                            <span className="text-white/40 text-[9px] mt-1 text-balance">
+                              {(playerData.honourScore || 100) < 80 ? 'Rank Match Locked' : 'Good Standing'}
+                            </span>
+                        </div>
                         <div className="bg-black/40 p-3 rounded-lg border border-white/10 flex flex-col items-center justify-center text-center">
                             <span className="text-white/60 text-[10px] uppercase tracking-widest mb-1">Matches Played</span>
                             <span className="text-white font-black text-lg">{Math.floor(playerData.exp / 20)}</span>
@@ -2348,10 +2453,6 @@ const updateLocalMovement = () => {
                         <div className="bg-black/40 p-3 rounded-lg border border-white/10 flex flex-col items-center justify-center text-center">
                             <span className="text-white/60 text-[10px] uppercase tracking-widest mb-1">Total Kills</span>
                             <span className="text-white font-black text-lg">{Math.floor(playerData.exp / 15)}</span>
-                        </div>
-                        <div className="bg-black/40 p-3 rounded-lg border border-white/10 flex flex-col items-center justify-center text-center">
-                            <span className="text-white/60 text-[10px] uppercase tracking-widest mb-1">Booyahs</span>
-                            <span className="text-white font-black text-lg text-yellow-500">{Math.floor(playerData.exp / 50)}</span>
                         </div>
                     </div>
                   </div>
