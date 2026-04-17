@@ -34,6 +34,27 @@ const WEAPONS: Record<string, Weapon> = {
   pistol: { name: "🔫 Glock", damage: 15, fireRate: 200, range: 200, ammo: 15, maxAmmo: 60, type: "pistol" }
 };
 
+interface GameCharacter {
+  id: string;
+  name: string;
+  cost: number;
+  skillName: string;
+  skillDesc: string;
+}
+
+const GAME_CHARACTERS: GameCharacter[] = [
+  { id: 'axel', name: 'Axel', cost: 0, skillName: 'Sprint Burst', skillDesc: '+50% Speed for 5s' },
+  { id: 'lumina', name: 'Lumina', cost: 2000, skillName: 'Healing Aura', skillDesc: 'Instantly restores 40 HP' },
+  { id: 'vanguard', name: 'Vanguard', cost: 3000, skillName: 'Energy Dome', skillDesc: 'Absorbs 50 damage for 8s' },
+  { id: 'ironclad', name: 'Ironclad', cost: 2500, skillName: 'Armor Plating', skillDesc: 'Instantly adds 30 Armor' },
+  { id: 'phantom', name: 'Phantom', cost: 4000, skillName: 'Ghost Walk', skillDesc: '+100% Speed for 3s' },
+  { id: 'blaze', name: 'Blaze', cost: 3500, skillName: 'Overdrive', skillDesc: 'Instantly heals to full HP' },
+  { id: 'pulse', name: 'Pulse', cost: 3000, skillName: 'Resupply', skillDesc: 'Fills Ammo & +20 HP' },
+  { id: 'titan', name: 'Titan', cost: 5000, skillName: 'Juggernaut', skillDesc: 'Instantly maximizes Armor (100)' },
+  { id: 'specter', name: 'Specter', cost: 4500, skillName: 'Siphon', skillDesc: '+60 HP & +10 Armor' },
+  { id: 'nova', name: 'Nova', cost: 6000, skillName: 'Phase Dash', skillDesc: '+200% Speed for 1.5s' }
+];
+
 // DENSE BUILDINGS (for 3000 x 3000 Map)
 const BUILDINGS = [
   // AERODROME (Top Left Town)
@@ -199,7 +220,7 @@ export default function App() {
   };
   const [matchType] = useState<'solo'>('solo');
   const [gameMode, setGameMode] = useState<'classic' | 'rank'>('classic');
-  const [character, setCharacter] = useState('kelly');
+  const [character, setCharacter] = useState('axel');
   const [matchTimer, setMatchTimer] = useState(30);
   const [dropPoint, setDropPoint] = useState({ x: 1500, y: 1500 });
   const [playerData, setPlayerData] = useState({ 
@@ -207,7 +228,7 @@ export default function App() {
     diamonds: 0, 
     level: 1, 
     exp: 0, 
-    unlockedCharacters: ['kelly'] as string[], 
+    unlockedCharacters: ['axel'] as string[], 
     unlockedSkins: [] as string[],
     equippedSkin: 'default' as string 
   });
@@ -345,12 +366,12 @@ export default function App() {
         const data = snapshot.val();
         setPlayerData({
           ...data,
-          unlockedCharacters: data.unlockedCharacters || ['kelly'],
+          unlockedCharacters: data.unlockedCharacters || ['axel'],
           unlockedSkins: data.unlockedSkins || [],
           exp: data.exp || 0
         });
       } else {
-        const newData = { gold: 500, diamonds: 0, level: 1, exp: 0, unlockedCharacters: ['kelly'], unlockedSkins: [] };
+        const newData = { gold: 500, diamonds: 0, level: 1, exp: 0, unlockedCharacters: ['axel'], unlockedSkins: [] };
         await set(playerRef, newData);
         setPlayerData(newData);
       }
@@ -906,19 +927,41 @@ export default function App() {
     state.current.lastSkillUse = now;
 
     switch(p.character) {
-      case "kelly":
+      case "axel": // +50% Speed for 5s
         p.speedBuff = 1.5;
         setTimeout(() => { if (state.current.localPlayer) delete state.current.localPlayer.speedBuff; }, 5000);
         break;
-      case "nairi":
-        p.armor += 20;
+      case "lumina": // Heal 40 HP
+        p.hp = Math.min(200, p.hp + 40);
         break;
-      case "alok":
-        p.hp = Math.min(200, p.hp + 30);
-        break;
-      case "chrono":
+      case "vanguard": // Shield for 8s
         p.shield = 50;
         setTimeout(() => { if (state.current.localPlayer) delete state.current.localPlayer.shield; }, 8000);
+        break;
+      case "ironclad": // +30 Armor
+        p.armor = Math.min(100, p.armor + 30);
+        break;
+      case "phantom": // +100% Speed for 3s
+        p.speedBuff = 2.0;
+        setTimeout(() => { if (state.current.localPlayer) delete state.current.localPlayer.speedBuff; }, 3000);
+        break;
+      case "blaze": // Max HP
+        p.hp = 200;
+        break;
+      case "pulse": // Ammo refilled + slight heal
+        p.ammo = WEAPONS[p.weapon]?.maxAmmo || 100;
+        p.hp = Math.min(200, p.hp + 20);
+        break;
+      case "titan": // Max Armor
+        p.armor = 100;
+        break;
+      case "specter": // +60 HP + 10 Armor
+        p.hp = Math.min(200, p.hp + 60);
+        p.armor = Math.min(100, p.armor + 10);
+        break;
+      case "nova": // Insane Dash for 1.5s
+        p.speedBuff = 3.0;
+        setTimeout(() => { if (state.current.localPlayer) delete state.current.localPlayer.speedBuff; }, 1500);
         break;
     }
   };
@@ -2084,16 +2127,17 @@ const updateLocalMovement = () => {
                     
                     <div>
                       <h4 className="text-white font-bold uppercase tracking-[2px] mb-3 text-sm border-b border-white/10 pb-1">Characters</h4>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                        {['nairi', 'alok', 'chrono'].map(char => (
-                          <div key={char} className="border border-white/10 bg-black/40 p-3 rounded flex flex-col justify-between">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 max-h-[300px] overflow-y-auto pr-1 gap-4">
+                        {GAME_CHARACTERS.map(char => (
+                          <div key={char.id} className="border border-white/10 bg-black/40 p-3 rounded flex flex-col justify-between">
                             <div>
-                               <h5 className="text-white font-bold capitalize mb-1">{char}</h5>
-                               <p className="text-accent-gold text-xs font-bold mb-3">{char === 'alok' ? '5000' : '2000'} Gold</p>
+                               <h5 className="text-white font-bold capitalize mb-1">{char.name}</h5>
+                               <p className="text-white/60 text-[10px] sm:text-xs leading-snug mb-2 min-h-[32px]">{char.skillDesc}</p>
+                               <p className="text-accent-gold text-xs font-bold mb-3">{char.cost === 0 ? 'Free' : `${char.cost} Gold`}</p>
                             </div>
-                            {playerData.unlockedCharacters.includes(char) 
+                            {playerData.unlockedCharacters.includes(char.id) 
                               ? <button disabled className="bg-white/20 text-white/50 w-full py-1.5 text-xs font-bold uppercase rounded cursor-not-allowed">Owned</button>
-                              : <button onClick={() => handleBuy('character', char, char === 'alok' ? 5000 : 2000, 'gold')} className="bg-accent-gold text-black w-full py-1.5 text-xs font-bold uppercase rounded hover:brightness-110">Buy</button>
+                              : <button onClick={() => handleBuy('character', char.id, char.cost, 'gold')} className="bg-accent-gold text-black w-full py-1.5 text-xs font-bold uppercase rounded shadow-[0_0_10px_rgba(212,175,55,0.3)] hover:shadow-[0_0_15px_rgba(212,175,55,0.6)] hover:brightness-110 transition-all">Buy</button>
                             }
                           </div>
                         ))}
