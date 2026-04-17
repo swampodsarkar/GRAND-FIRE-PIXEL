@@ -8,7 +8,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Settings, Mail, Battery, Wifi, MessageSquare, Users, Crosshair, User, Beaker, Zap, Shield, Activity, Luggage, Skull, Sword, Map, Target, CloudRain, X, ShoppingCart, Package, Calendar, Trophy, Send, Lock } from 'lucide-react';
 import { ref, set, onValue, get, update } from 'firebase/database';
 import { db, auth } from './firebase';
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged } from 'firebase/auth';
 
 // --- Game Constants & Types ---
 const MAP_WIDTH = 3000;
@@ -229,10 +229,11 @@ export default function App() {
       } else {
         await signInWithEmailAndPassword(auth, email, password);
         const snapshot = await get(ref(db, 'users/' + auth.currentUser!.uid));
-        setPlayerName(snapshot.val().username);
+        const loggedUsername = snapshot.val().username;
+        setPlayerName(loggedUsername);
         addMessage("✅ Logged in!");
         initAudio(); 
-        goToLobby();
+        goToLobby(loggedUsername);
       }
     } catch (error) {
       addMessage("❌ Auth Failed: " + (error as Error).message);
@@ -245,7 +246,7 @@ export default function App() {
     setShowUsernameModal(false);
     addMessage("✅ Username set and account created!");
     initAudio(); 
-    goToLobby();
+    goToLobby(playerName);
   };
   const [matchType] = useState<'solo'>('solo');
   const [gameMode, setGameMode] = useState<'classic' | 'rank'>('classic');
@@ -383,14 +384,15 @@ export default function App() {
     }, 2000);
   };
 
-  const goToLobby = async () => {
-    if (!playerName.trim()) {
+  const goToLobby = async (overrideName?: string) => {
+    const targetName = overrideName || playerName;
+    if (!targetName.trim()) {
       alert("দয়া করে আপনার নাম দিন!");
       return;
     }
     
     // Firebase Integration: Save/Load player data
-    const playerRef = ref(db, 'users/' + playerName);
+    const playerRef = ref(db, 'users/' + targetName);
     try {
       const snapshot = await get(playerRef);
       if (snapshot.exists()) {
@@ -432,6 +434,24 @@ export default function App() {
 
     setScreen('lobby');
   };
+
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, async (user) => {
+      if (user && screen === 'login') {
+         try {
+           const snapshot = await get(ref(db, 'users/' + user.uid));
+           if (snapshot.exists()) {
+             const uName = snapshot.val().username;
+             setPlayerName(uName);
+             await goToLobby(uName);
+           }
+         } catch (e) {
+           console.error("Auth init error", e);
+         }
+      }
+    });
+    return () => unsub();
+  }, [screen]);
 
   const startMatchmaking = async () => {
     setScreen('matchmaking');
@@ -490,26 +510,31 @@ export default function App() {
         updatePresence();
 
         const lobbyRef = ref(db, 'matchmaking/lobby');
-        // Only run timer & cleanup updates if player is the first in queue (leader)
-        if (matchmakingPlayers[0] === playerName) {
-           // Also check presence of all players
-           get(ref(db, 'matchmaking/presence')).then(presenceSnap => {
-             const presences = presenceSnap.val() || {};
-             const now = Date.now();
-             
-             get(lobbyRef).then((snapshot) => {
-               if (snapshot.exists()) {
-                 const data = snapshot.val();
-                 let activePlayers = data.players || [];
-                 
-                 // Remove players who haven't updated presence in 20+ seconds
-                 activePlayers = activePlayers.filter((pName: string) => {
-                    const lastActive = presences[pName] || 0;
-                    return (now - lastActive) < 20000;
+        get(ref(db, 'matchmaking/presence')).then(presenceSnap => {
+           const presences = presenceSnap.val() || {};
+           const now = Date.now();
+           
+           get(lobbyRef).then((snapshot) => {
+             if (snapshot.exists()) {
+               const data = snapshot.val();
+               let activePlayers = data.players || [];
+               
+               // Dynamic Active Leader Election: Find first player in queue who is actively heartbeating (< 20s ago)
+               let activeLeader = null;
+               for (const pName of activePlayers) {
+                  if ((now - (presences[pName] || 0)) < 20000) {
+                     activeLeader = pName;
+                     break;
+                  }
+               }
+
+               // Only the active leader executes DB cleans and countdowns, preventing timer acceleration/ghost queues
+               if (activeLeader === playerName) {
+                 const newActivePlayers = activePlayers.filter((pName: string) => {
+                    return (now - (presences[pName] || 0)) < 20000;
                  });
 
-                 // If leader was removed, someone else becomes leader next tick
-                 const updates: any = { players: activePlayers };
+                 const updates: any = { players: newActivePlayers };
                  
                  if (data.timer > 0) {
                    updates.timer = Math.max(0, data.timer - 1);
@@ -519,9 +544,9 @@ export default function App() {
                  
                  update(lobbyRef, updates);
                }
-             });
+             }
            });
-        }
+        });
       }, 1000);
     }
     return () => {
@@ -531,7 +556,7 @@ export default function App() {
         set(ref(db, `matchmaking/presence/${playerName}`), null);
       }
     };
-  }, [screen, matchmakingPlayers, playerName]);
+  }, [screen, playerName]);
 
   useEffect(() => {
     let interval: NodeJS.Timeout;
