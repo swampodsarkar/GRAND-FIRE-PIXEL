@@ -83,6 +83,35 @@ const BUILDINGS = [
   { x: 600, y: 1400, w: 150, h: 200, isDoorOpen: false }, { x: 2200, y: 1400, w: 150, h: 200, isDoorOpen: false },
 ];
 
+const COVER_BLOCKS = [
+  // Blocks for taking cover scattered around
+  { x: 1350, y: 1450, w: 40, h: 40 }, { x: 1500, y: 1380, w: 60, h: 30 },
+  { x: 1650, y: 1550, w: 50, h: 40 }, { x: 1400, y: 1650, w: 40, h: 50 },
+  { x: 1750, y: 1350, w: 40, h: 40 }, { x: 1250, y: 1550, w: 40, h: 60 },
+  { x: 450, y: 450, w: 50, h: 40 }, { x: 2350, y: 400, w: 60, h: 40 },
+  { x: 500, y: 2450, w: 40, h: 50 }, { x: 2450, y: 2450, w: 50, h: 50 },
+];
+
+const WALLS: {x: number, y: number, w: number, h: number}[] = [];
+const WALL_THICKNESS = 15;
+const DOOR_SIZE = 60;
+
+BUILDINGS.forEach(b => {
+  // Top Wall
+  WALLS.push({ x: b.x, y: b.y, w: b.w, h: WALL_THICKNESS });
+  // Left Wall
+  WALLS.push({ x: b.x, y: b.y + WALL_THICKNESS, w: WALL_THICKNESS, h: b.h - WALL_THICKNESS * 2 });
+  // Right Wall
+  WALLS.push({ x: b.x + b.w - WALL_THICKNESS, y: b.y + WALL_THICKNESS, w: WALL_THICKNESS, h: b.h - WALL_THICKNESS * 2 });
+  
+  // Bottom Wall with a Door gap in the middle
+  const bottomWallSegmentW = Math.max((b.w - DOOR_SIZE) / 2, 0);
+  // Bottom Left
+  WALLS.push({ x: b.x, y: b.y + b.h - WALL_THICKNESS, w: bottomWallSegmentW, h: WALL_THICKNESS });
+  // Bottom Right
+  WALLS.push({ x: b.x + b.w - bottomWallSegmentW, y: b.y + b.h - WALL_THICKNESS, w: bottomWallSegmentW, h: WALL_THICKNESS });
+});
+
 const ROADS = [
   // Main Highways
   { x: 0, y: 1450, w: 3000, h: 100 }, // Horizontal main
@@ -812,7 +841,7 @@ export default function App() {
       state.current.rankPoints = Math.max(0, state.current.rankPoints + rankChange);
     } else {
       expGained = 50 + (p.kills * 20) + Math.max(0, (20 - place) * 10);
-      goldGained = 20 + (p.kills * 15) + Math.max(0, (20 - place) * 5);
+      goldGained = 500 + (p.kills * 15) + Math.max(0, (20 - place) * 5); // Boosted base gold by 500
       
       const newExp = playerData.exp + expGained;
       const newLevel = Math.floor(newExp / 1000) + 1;
@@ -857,7 +886,7 @@ export default function App() {
       state.current.rankPoints += rankChange;
     } else {
       expGained = 500 + p.kills * 50;
-      goldGained = 300 + p.kills * 25;
+      goldGained = 1500 + p.kills * 25; // Massive boost for placing 1st in classic
       
       const newExp = playerData.exp + expGained;
       const newLevel = Math.floor(newExp / 1000) + 1;
@@ -1114,9 +1143,12 @@ const updateLocalMovement = () => {
     p.x = Math.min(Math.max(p.x, 50), MAP_WIDTH - 50);
     p.y = Math.min(Math.max(p.y, 50), MAP_HEIGHT - 50);
 
-    // Resolve collisions with buildings
+    // Resolve collisions with walls and blocks
     const resolveCollisions = (ent: {x: number, y: number}, radius: number) => {
-      for (let b of BUILDINGS) {
+      // Create a combined array of obstacles
+      const obstacles = [...WALLS, ...COVER_BLOCKS];
+      
+      for (let b of obstacles) {
         let cx = Math.max(b.x, Math.min(ent.x, b.x + b.w));
         let cy = Math.max(b.y, Math.min(ent.y, b.y + b.h));
         let dx = ent.x - cx;
@@ -1237,9 +1269,10 @@ const updateLocalMovement = () => {
       bot.x = Math.min(Math.max(bot.x, 30), MAP_WIDTH - 30);
       bot.y = Math.min(Math.max(bot.y, 30), MAP_HEIGHT - 30);
       
-      // Resolve collisions with buildings
+      // Resolve collisions with walls and blocks
       const resolveCollisions = (ent: {x: number, y: number}, radius: number) => {
-        for (let b of BUILDINGS) {
+        const obstacles = [...WALLS, ...COVER_BLOCKS];
+        for (let b of obstacles) {
           let cx = Math.max(b.x, Math.min(ent.x, b.x + b.w));
           let cy = Math.max(b.y, Math.min(ent.y, b.y + b.h));
           let dx = ent.x - cx;
@@ -1278,15 +1311,16 @@ const updateLocalMovement = () => {
         continue;
       }
 
-      // Hit buildings
-      let hitBuilding = false;
-      for (let bldg of BUILDINGS) {
-        if (b.x >= bldg.x && b.x <= bldg.x + bldg.w && b.y >= bldg.y && b.y <= bldg.y + bldg.h) {
-          hitBuilding = true;
+      // Hit walls / covers
+      let hitObstacle = false;
+      const obstacles = [...WALLS, ...COVER_BLOCKS];
+      for (let obs of obstacles) {
+        if (b.x >= obs.x && b.x <= obs.x + obs.w && b.y >= obs.y && b.y <= obs.y + obs.h) {
+          hitObstacle = true;
           break;
         }
       }
-      if (hitBuilding) {
+      if (hitObstacle) {
         state.current.bullets.splice(i, 1);
         i--;
         continue;
@@ -1419,17 +1453,63 @@ const updateLocalMovement = () => {
       ctx.fill();
     });
 
-    // Buildings
-    ctx.fillStyle = '#1A1A1D';
-    ctx.strokeStyle = '#2A2A2D';
-    ctx.lineWidth = 2;
+    // Buildings (Enterable)
     BUILDINGS.forEach(b => {
       const pos = worldToScreen(b.x, b.y);
+      // Floor pattern (Tiles / Concrete)
+      ctx.fillStyle = '#222';
       ctx.fillRect(pos.x, pos.y, b.w, b.h);
-      ctx.strokeRect(pos.x, pos.y, b.w, b.h);
-      ctx.fillStyle = '#151517';
-      ctx.fillRect(pos.x + 10, pos.y + 10, b.w - 20, b.h - 20);
-      ctx.fillStyle = '#1A1A1D';
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
+      ctx.lineWidth = 1;
+      // Draw simple floor tiles
+      for (let tx = 0; tx < b.w; tx += 20) {
+        ctx.beginPath(); ctx.moveTo(pos.x + tx, pos.y); ctx.lineTo(pos.x + tx, pos.y + b.h); ctx.stroke();
+      }
+      for (let ty = 0; ty < b.h; ty += 20) {
+        ctx.beginPath(); ctx.moveTo(pos.x, pos.y + ty); ctx.lineTo(pos.x + b.w, pos.y + ty); ctx.stroke();
+      }
+      
+      // Shadow from walls
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+      ctx.shadowBlur = 10;
+      ctx.shadowOffsetX = 5;
+      ctx.shadowOffsetY = 5;
+    });
+
+    // Reset shadow
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 0;
+
+    // Walls
+    ctx.fillStyle = '#1A1A1D';
+    ctx.strokeStyle = '#333';
+    ctx.lineWidth = 2;
+    // We already generated WALLS based on buildings
+    WALLS.forEach(wall => {
+      const wpos = worldToScreen(wall.x, wall.y);
+      ctx.fillRect(wpos.x, wpos.y, wall.w, wall.h);
+      ctx.strokeRect(wpos.x, wpos.y, wall.w, wall.h);
+    });
+
+    // Cover Blocks
+    ctx.fillStyle = '#4A3C31'; // Wooden crate brown
+    ctx.strokeStyle = '#2d231b';
+    ctx.lineWidth = 3;
+    COVER_BLOCKS.forEach(block => {
+      const cpos = worldToScreen(block.x, block.y);
+      ctx.fillRect(cpos.x, cpos.y, block.w, block.h);
+      ctx.strokeRect(cpos.x, cpos.y, block.w, block.h);
+      
+      // Cross / X shape on crate for detail
+      ctx.beginPath();
+      ctx.moveTo(cpos.x, cpos.y);
+      ctx.lineTo(cpos.x + block.w, cpos.y + block.h);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(cpos.x + block.w, cpos.y);
+      ctx.lineTo(cpos.x, cpos.y + block.h);
+      ctx.stroke();
     });
 
     // Safe zone - only visible after 1 minute
