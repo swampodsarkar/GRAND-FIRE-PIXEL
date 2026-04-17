@@ -27,11 +27,11 @@ interface Weapon {
 }
 
 const WEAPONS: Record<string, Weapon> = {
-  m4a1: { name: "🔫 M4A1", damage: 24, fireRate: 130, range: 550, ammo: 30, maxAmmo: 120, type: "assault" },
-  sniper: { name: "🎯 AWM", damage: 95, fireRate: 900, range: 1000, ammo: 5, maxAmmo: 25, type: "sniper" },
-  shotgun: { name: "🔫 M1014", damage: 110, fireRate: 1000, range: 180, ammo: 8, maxAmmo: 32, type: "shotgun" },
-  smg: { name: "🔫 MP5", damage: 16, fireRate: 80, range: 220, ammo: 40, maxAmmo: 160, type: "smg" },
-  pistol: { name: "🔫 Glock", damage: 15, fireRate: 200, range: 250, ammo: 15, maxAmmo: 60, type: "pistol" }
+  m4a1: { name: "🔫 M4A1", damage: 22, fireRate: 130, range: 450, ammo: 30, maxAmmo: 120, type: "assault" }, // Assault: Medium range
+  sniper: { name: "🎯 AWM", damage: 150, fireRate: 1500, range: 1200, ammo: 5, maxAmmo: 25, type: "sniper" }, // Sniper: High damage & range
+  shotgun: { name: "🔫 M1014", damage: 90, fireRate: 1000, range: 120, ammo: 8, maxAmmo: 32, type: "shotgun" }, // Shotgun: Close range
+  smg: { name: "🔫 MP5", damage: 18, fireRate: 80, range: 280, ammo: 40, maxAmmo: 160, type: "smg" }, // SMG: Short range optimized
+  pistol: { name: "🔫 Glock", damage: 15, fireRate: 200, range: 200, ammo: 15, maxAmmo: 60, type: "pistol" }
 };
 
 // DENSE BUILDINGS (for 3000 x 3000 Map)
