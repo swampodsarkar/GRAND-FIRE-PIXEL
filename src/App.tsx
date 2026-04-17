@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Settings, Mail, Battery, Wifi, MessageSquare, Users, Crosshair, User, Beaker, Zap, Shield, Activity, Luggage, Skull, Sword, Map, Target, CloudRain } from 'lucide-react';
+import { Settings, Mail, Battery, Wifi, MessageSquare, Users, Crosshair, User, Beaker, Zap, Shield, Activity, Luggage, Skull, Sword, Map, Target, CloudRain, X } from 'lucide-react';
 import { ref, set, onValue, get, update } from 'firebase/database';
 import { db, auth } from './firebase';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
@@ -440,17 +440,7 @@ export default function App() {
   const [respawnUsed, setRespawnUsed] = useState(false);
 
   const handlePlayerDeath = () => {
-    // Check if player can respawn (Only once per match)
-    if (!respawnUsed) {
-      setIsRespawning(true);
-      setRespawnUsed(true);
-      setScreen('drop_selection');
-      setDropTimer(20);
-      addMessage("⚠️ YOU DIED! Free revival used. Respawning in 20s...");
-    } else {
-      addMessage("💀 No more revivals left!");
-      triggerGameOver();
-    }
+    triggerGameOver();
   };
 
   const startGame = () => {
@@ -628,6 +618,12 @@ export default function App() {
           if (bot.hp > 0) {
             const dist = Math.hypot(bot.x - zone.x, bot.y - zone.y);
             if (dist > zone.radius) {
+              // Move towards center of the zone
+              const angle = Math.atan2(zone.y - bot.y, zone.x - bot.x);
+              bot.x += Math.cos(angle) * 2;
+              bot.y += Math.sin(angle) * 2;
+              
+              // Damage if still outside
               bot.hp = Math.max(0, bot.hp - damage);
               if (bot.hp <= 0) {
                 // Add to kill feed
@@ -1878,7 +1874,10 @@ const updateLocalMovement = () => {
           {/* Top Bar */}
           <header className="h-[35px] sm:h-[50px] flex items-center justify-between px-2 md:px-4 shrink-0 mt-1 z-20">
             {/* Top Left: Profile */}
-            <div className="flex items-center gap-1 bg-black/40 pr-2 rounded-full border border-white/10 backdrop-blur-sm scale-75 sm:scale-85 md:scale-100 origin-left">
+            <div 
+              className="flex items-center gap-1 bg-black/40 pr-2 rounded-full border border-white/10 backdrop-blur-sm scale-75 sm:scale-85 md:scale-100 origin-left cursor-pointer hover:bg-white/5 transition-colors"
+              onClick={() => setActiveModal('PROFILE')}
+            >
               <div className="w-7 h-7 sm:w-9 sm:h-9 bg-accent-dim rounded-full flex items-center justify-center font-serif text-white text-[12px] sm:text-[16px] border-2 border-accent-gold shadow-[0_0_8px_rgba(212,175,55,0.5)]">
                 {playerName ? playerName[0].toUpperCase() : 'U'}
               </div>
@@ -2015,17 +2014,22 @@ const updateLocalMovement = () => {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/80 flex items-center justify-center z-[500] backdrop-blur-sm"
+            className="fixed inset-0 bg-black/95 flex flex-col z-[500] backdrop-blur-md"
           >
-            <motion.div 
-              initial={{ scale: 0.9, y: 20 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.9, y: 20 }}
-              className={`bg-bg-card border border-accent-gold/50 ${(activeModal === 'STORE' || activeModal === 'EVENTS') ? 'max-w-[700px] p-6' : 'max-w-[400px] p-8'} rounded-xl w-[95%] w-full shadow-[0_0_30px_rgba(212,175,55,0.15)] relative max-h-[90vh] flex flex-col`}
-            >
-              <h3 className="text-accent-gold font-serif text-[24px] uppercase tracking-[2px] mb-4 text-center shrink-0">{activeModal}</h3>
-              
-              <div className="flex-1 overflow-y-auto min-h-0 text-left mb-6 pr-2">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-4 sm:p-6 border-b border-white/10 shrink-0 bg-black/50">
+               <h3 className="text-accent-gold font-serif text-[20px] sm:text-[24px] uppercase tracking-[2px]">{activeModal}</h3>
+               <button 
+                 onClick={() => setActiveModal(null)}
+                 className="p-2 bg-white/5 hover:bg-white/10 rounded-full text-white/70 hover:text-white transition-colors"
+               >
+                 <X size={24} />
+               </button>
+            </div>
+            
+            {/* Modal Body */}
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 flex justify-center">
+              <div className="w-full max-w-[800px] pb-10">
                 {activeModal === 'STORE' ? (                
                   <div className="space-y-6">
                     <div className="flex justify-between items-center bg-black/40 p-3 border border-white/10 rounded">
@@ -2128,21 +2132,59 @@ const updateLocalMovement = () => {
                     ))}
                   </div>
                 ) : activeModal === 'LEADERBOARD' ? (
-                  <div className="space-y-2">
-                    {[
-                        { name: playerName, rank: playerData.level * 100 },
-                        { name: "Dragon", rank: 1250 },
-                        { name: "Titan", rank: 1100 },
-                        { name: "Shadow", rank: 950 },
-                        { name: "Viper", rank: 800 },
-                        { name: "Wolf", rank: 750 },
-                        { name: "Hawk", rank: 700 },
-                    ].sort((a,b) => b.rank - a.rank).map((ply, i) => (
-                        <div key={ply.name} className={`flex justify-between items-center text-white p-3 rounded ${ply.name === playerName ? 'bg-accent-gold/20' : 'bg-black/40'}`}>
-                          <span className="font-black text-sm">{i+1}. {ply.name}</span>
-                          <span className="text-accent-gold font-bold">{ply.rank} pts</span>
+                  <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+                    {
+                        Array.from({length: 99}).map((_, i) => ({
+                          name: `Player${i + 2}`,
+                          rank: Math.floor(Math.random() * 2000)
+                        })).concat([{ name: playerName, rank: playerData.level * 100 }])
+                        .sort((a,b) => b.rank - a.rank).map((ply, i) => (
+                            <div key={ply.name + i} className={`flex justify-between items-center text-white p-2 rounded ${ply.name === playerName ? 'bg-accent-gold/20' : 'bg-black/40'}`}>
+                              <span className="font-black text-xs">{i+1}. {ply.name}</span>
+                              <span className="text-accent-gold font-bold text-xs">{ply.rank} pts</span>
+                            </div>
+                        ))
+                    }
+                  </div>
+                ) : activeModal === 'PROFILE' ? (
+                  <div className="flex flex-col gap-4">
+                    <div className="flex items-center gap-4 bg-black/40 p-4 rounded-xl border border-white/10">
+                       <div className="w-16 h-16 sm:w-20 sm:h-20 bg-accent-dim rounded-full flex items-center justify-center font-serif text-white text-[24px] sm:text-[32px] border-4 border-accent-gold shadow-[0_0_15px_rgba(212,175,55,0.5)] shrink-0">
+                         {playerName ? playerName[0].toUpperCase() : 'U'}
+                       </div>
+                       <div className="flex-1">
+                          <h2 className="text-white text-xl sm:text-2xl font-black uppercase tracking-wide flex items-center justify-between">
+                            {playerName || 'Guest'}
+                            <span className="text-white/40 text-xs italic">UID: {Math.floor(Math.random() * 9000000000) + 1000000000}</span>
+                          </h2>
+                          <div className="text-accent-gold font-bold mb-2">Level {playerData.level}</div>
+                          
+                          <div className="w-full bg-black/60 h-2 rounded-full overflow-hidden border border-white/10">
+                             <div className="bg-accent-gold h-full" style={{ width: `${(playerData.exp / (playerData.level * 100)) * 100}%` }}></div>
+                          </div>
+                          <div className="text-right text-[10px] text-white/60 mt-1">EXP: {playerData.exp} / {playerData.level * 100}</div>
+                       </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                        <div className="bg-black/40 p-3 rounded-lg border border-accent-gold/20 flex flex-col items-center justify-center text-center">
+                            <span className="text-white/60 text-[10px] uppercase tracking-widest mb-1">Rank</span>
+                            <span className="text-white font-black text-lg text-accent-gold">{playerData.level > 10 ? 'Heroic' : playerData.level > 5 ? 'Diamond' : 'Bronze'}</span>
+                            <span className="text-white/40 text-[10px]">Points: {playerData.level * 100 + playerData.exp}</span>
                         </div>
-                    ))}
+                        <div className="bg-black/40 p-3 rounded-lg border border-white/10 flex flex-col items-center justify-center text-center">
+                            <span className="text-white/60 text-[10px] uppercase tracking-widest mb-1">Matches Played</span>
+                            <span className="text-white font-black text-lg">{Math.floor(playerData.exp / 20)}</span>
+                        </div>
+                        <div className="bg-black/40 p-3 rounded-lg border border-white/10 flex flex-col items-center justify-center text-center">
+                            <span className="text-white/60 text-[10px] uppercase tracking-widest mb-1">Total Kills</span>
+                            <span className="text-white font-black text-lg">{Math.floor(playerData.exp / 15)}</span>
+                        </div>
+                        <div className="bg-black/40 p-3 rounded-lg border border-white/10 flex flex-col items-center justify-center text-center">
+                            <span className="text-white/60 text-[10px] uppercase tracking-widest mb-1">Booyahs</span>
+                            <span className="text-white font-black text-lg text-yellow-500">{Math.floor(playerData.exp / 50)}</span>
+                        </div>
+                    </div>
                   </div>
                 ) : (
                   <div className="text-center">
@@ -2150,14 +2192,7 @@ const updateLocalMovement = () => {
                   </div>
                 )}
               </div>
-              
-              <button 
-                onClick={() => setActiveModal(null)}
-                className="px-8 py-3 w-full sm:w-auto self-center bg-accent-gold text-black font-bold uppercase tracking-[2px] rounded hover:brightness-110 transition-all shrink-0 mt-auto"
-              >
-                Close
-              </button>
-            </motion.div>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
