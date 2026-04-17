@@ -7,7 +7,8 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Settings, Mail, Battery, Wifi, MessageSquare, Users, Crosshair, User, Beaker, Zap, Shield, Activity, Luggage, Skull, Sword, Map, Target, CloudRain } from 'lucide-react';
 import { ref, set, onValue, get } from 'firebase/database';
-import { db } from './firebase';
+import { db, auth } from './firebase';
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
 
 // --- Game Constants & Types ---
 const MAP_WIDTH = 3000;
@@ -163,7 +164,39 @@ export default function App() {
   // --- UI State ---
   const [screen, setScreen] = useState<'login' | 'lobby' | 'matchmaking' | 'drop_selection' | 'game'>('login');
   const [playerName, setPlayerName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [isRegistering, setIsRegistering] = useState(false);
   const [showModeSelect, setShowModeSelect] = useState(false);
+
+  const [showUsernameModal, setShowUsernameModal] = useState(false);
+
+  const handleAuth = async () => {
+    try {
+      if (isRegistering) {
+        await createUserWithEmailAndPassword(auth, email, password);
+        setShowUsernameModal(true); // Trigger username setup instead of saving immediately
+      } else {
+        await signInWithEmailAndPassword(auth, email, password);
+        const snapshot = await get(ref(db, 'users/' + auth.currentUser!.uid));
+        setPlayerName(snapshot.val().username);
+        addMessage("✅ Logged in!");
+        initAudio(); 
+        goToLobby();
+      }
+    } catch (error) {
+      addMessage("❌ Auth Failed: " + (error as Error).message);
+    }
+  };
+
+  const handleSetUsername = async () => {
+    if (!playerName) return;
+    await set(ref(db, 'users/' + auth.currentUser!.uid), { username: playerName, email: email });
+    setShowUsernameModal(false);
+    addMessage("✅ Username set and account created!");
+    initAudio(); 
+    goToLobby();
+  };
   const [matchType] = useState<'solo'>('solo');
   const [gameMode, setGameMode] = useState<'classic' | 'rank'>('classic');
   const [character, setCharacter] = useState('kelly');
@@ -1725,29 +1758,67 @@ const updateLocalMovement = () => {
             exit={{ opacity: 0, scale: 1.1 }}
             className="fixed inset-0 bg-bg-deep flex justify-center items-center z-[200]"
           >
-          <div className="bg-bg-card p-[60px_40px] text-center border border-accent-gold/20 w-[400px] rounded-[32px] shadow-[0_20px_60px_rgba(0,0,0,0.8)] relative overflow-hidden">
-            <div className="absolute top-0 left-0 w-full h-[6px] bg-gradient-to-r from-transparent via-accent-gold to-transparent"></div>
-            <h1 className="text-[36px] sm:text-[42px] text-white mb-2 font-black italic tracking-[3px] uppercase drop-shadow-[0_4px_12px_rgba(212,175,55,0.4)]">FIRESTRIKEx</h1>
-            <div className="text-[10px] text-accent-gold uppercase font-bold tracking-[6px] mb-12 opacity-80">Battle Foundation</div>
+          <div className="fixed top-4 left-6 z-[201]">
+            <h1 className="text-[20px] sm:text-[28px] text-white font-black italic tracking-[2px] uppercase drop-shadow-[0_4px_12px_rgba(212,175,55,0.4)]">FIRESTRIKEx</h1>
+          </div>
+          <div className="bg-bg-card p-4 sm:p-6 text-center border border-accent-gold/20 w-[90%] max-w-[300px] max-h-[85vh] rounded-[24px] shadow-[0_10px_40px_rgba(0,0,0,0.8)] relative overflow-y-auto">
+            <div className="absolute top-0 left-0 w-full h-[4px] bg-gradient-to-r from-transparent via-accent-gold to-transparent"></div>
+            <div className="text-[8px] sm:text-[9px] text-accent-gold uppercase font-bold tracking-[4px] mb-4 opacity-80">Battle Foundation</div>
             
-            <div className="relative mb-10 group">
+            <div className="space-y-2 mb-4">
               <input 
-                type="text" 
-                value={playerName}
-                onChange={(e) => setPlayerName(e.target.value)}
-                placeholder="PLAYER IDENTITY" 
-                maxLength={15}
-                className="w-full p-[18px] bg-black/40 border border-white/10 text-white text-[14px] outline-none text-center rounded-[18px] focus:border-accent-gold transition-all duration-300 font-bold tracking-[2px] placeholder:opacity-30 group-focus-within:shadow-[0_0_20px_rgba(212,175,55,0.1)]"
+                type="email" 
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="EMAIL" 
+                className="w-full p-2.5 sm:p-3 bg-black/40 border border-white/10 text-white text-[11px] sm:text-[12px] outline-none text-center rounded-[12px] focus:border-accent-gold transition-all duration-300 font-bold tracking-[1px] placeholder:opacity-30"
+              />
+              <input 
+                type="password" 
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="PASSWORD" 
+                className="w-full p-2.5 sm:p-3 bg-black/40 border border-white/10 text-white text-[11px] sm:text-[12px] outline-none text-center rounded-[12px] focus:border-accent-gold transition-all duration-300 font-bold tracking-[1px] placeholder:opacity-30"
               />
             </div>
             
             <button 
-              onClick={() => { initAudio(); goToLobby(); }}
-              className="w-full p-[18px] bg-accent-gold text-bg-deep text-[16px] font-black uppercase tracking-[4px] cursor-pointer hover:brightness-110 active:scale-95 transition-all rounded-[20px] shadow-[0_10px_30px_rgba(212,175,55,0.3)] border-b-4 border-black/20"
+              onClick={handleAuth}
+              className="w-full p-2.5 sm:p-3 bg-accent-gold text-bg-deep text-[12px] sm:text-[14px] font-black uppercase tracking-[2px] cursor-pointer hover:brightness-110 active:scale-95 transition-all rounded-[12px] shadow-[0_5px_15px_rgba(212,175,55,0.2)] mb-3"
             >
-              IDENTITY CONFIRMED
+              {isRegistering ? 'Register' : 'Login'}
             </button>
-            <div className="mt-8 text-[9px] text-white/20 uppercase tracking-[2px]">Secured Connection Established</div>
+            <button 
+              onClick={() => setIsRegistering(!isRegistering)}
+              className="text-[8px] sm:text-[9px] text-accent-gold uppercase underline cursor-pointer"
+            >
+              {isRegistering ? 'Already have an account? Login' : 'Need an account? Register'}
+            </button>
+            <div className="mt-4 text-[7px] sm:text-[8px] text-white/20 uppercase tracking-[1px]">Secured Connection Established</div>
+          </div>
+        </motion.div>
+      )}
+
+      {/* Username Modal */}
+      {showUsernameModal && (
+        <motion.div 
+          className="fixed inset-0 bg-black/90 flex justify-center items-center z-[600]"
+        >
+          <div className="bg-bg-card p-8 text-center border border-accent-gold/50 rounded-3xl w-[90%] max-w-[350px]">
+            <h2 className="text-white text-xl font-black uppercase mb-6">Set Your Username</h2>
+            <input 
+              type="text" 
+              value={playerName}
+              onChange={(e) => setPlayerName(e.target.value)}
+              placeholder="ENTER USERNAME" 
+              className="w-full p-4 bg-black/40 border border-white/10 text-white rounded-xl text-center mb-6"
+            />
+            <button 
+              onClick={handleSetUsername}
+              className="w-full p-4 bg-accent-gold text-black font-black uppercase rounded-xl"
+            >
+              Confirm
+            </button>
           </div>
         </motion.div>
       )}
