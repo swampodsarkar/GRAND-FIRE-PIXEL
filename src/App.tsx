@@ -602,33 +602,79 @@ export default function App() {
   // In-match Room Lifecycle & Heartbeat
   useEffect(() => {
     let interval: NodeJS.Timeout;
+    let syncInterval: NodeJS.Timeout;
+    let unsubscribe: () => void;
+
     if (screen === 'game' && currentMatchId) {
       const roomRef = ref(db, `matches/${currentMatchId}`);
+      const playersRef = ref(db, `matches/${currentMatchId}/players`);
       const myPresenceRef = ref(db, `matches/${currentMatchId}/players/${playerName}`);
       
       const updatePresence = (alive: boolean) => {
-        set(myPresenceRef, {
+        const p = state.current.localPlayer;
+        update(myPresenceRef, {
           name: playerName,
           alive: alive,
-          lastSeen: Date.now()
+          lastSeen: Date.now(),
+          x: p ? Math.round(p.x) : 0,
+          y: p ? Math.round(p.y) : 0,
+          angle: p ? Number(p.angle.toFixed(2)) : 0,
+          hp: p ? p.hp : 200,
+          kills: p ? p.kills : 0,
+          weapon: p ? p.weapon : 'm4a1'
         });
       };
 
       // Initial Join
       updatePresence(true);
 
+      // 1. Listen for other players' data (Real-time)
+      unsubscribe = onValue(playersRef, (snapshot) => {
+        if (snapshot.exists()) {
+          const remotePlayers = snapshot.val();
+          state.current.enemies.forEach(enemy => {
+            if (!enemy.isBot && remotePlayers[enemy.name]) {
+              const remote = remotePlayers[enemy.name];
+              // Smoothen movement a bit (interpolation could be added later, currently direct sync)
+              enemy.x = remote.x ?? enemy.x;
+              enemy.y = remote.y ?? enemy.y;
+              enemy.angle = remote.angle ?? enemy.angle;
+              enemy.hp = remote.hp ?? enemy.hp;
+              enemy.kills = remote.kills ?? enemy.kills;
+              enemy.weapon = remote.weapon ?? enemy.weapon;
+            }
+          });
+        }
+      });
+
+      // 2. High-freq State Update (Throttled 100ms)
+      syncInterval = setInterval(() => {
+        const p = state.current.localPlayer;
+        if (p) {
+          update(myPresenceRef, {
+            x: Math.round(p.x),
+            y: Math.round(p.y),
+            angle: Number(p.angle.toFixed(2)),
+            hp: p.hp,
+            kills: p.kills,
+            weapon: p.weapon,
+            lastSeen: Date.now()
+          });
+        }
+      }, 100);
+
+      // 3. Room Management (Every 2s)
       interval = setInterval(() => {
         const isCurrentlyAlive = state.current.localPlayer?.isAlive ?? false;
-        updatePresence(isCurrentlyAlive);
+        // Heartbeat only, detailed sync is in syncInterval
+        update(myPresenceRef, { lastSeen: Date.now(), alive: isCurrentlyAlive });
 
-        // Check overall room health (logic handled by the first player in the room list)
         get(roomRef).then(snap => {
           if (snap.exists()) {
             const data = snap.val();
             const players = data.players || {};
             const playerNames = Object.keys(players);
             
-            // Leader Selection: First alphabetically active player
             let activeLeader = null;
             const now = Date.now();
             
@@ -640,7 +686,6 @@ export default function App() {
             }
 
             if (activeLeader === playerName) {
-               // Check if ANY real player is still alive
                const anyRealPlayerAlive = playerNames.some(p => {
                   const pData = players[p];
                   const isRecentlySeen = (now - (pData.lastSeen || 0)) < 20000;
@@ -648,8 +693,6 @@ export default function App() {
                });
 
                if (!anyRealPlayerAlive) {
-                  // No real survivors left + everyone disconnected or dead
-                  // Delete the room to keep Firebase clean
                   set(roomRef, null);
                }
             }
@@ -659,8 +702,9 @@ export default function App() {
     }
     return () => {
       if (interval) clearInterval(interval);
+      if (syncInterval) clearInterval(syncInterval);
+      if (unsubscribe) unsubscribe();
       if (screen === 'game' && currentMatchId) {
-         // Mark as dead/left on disconnect
          set(ref(db, `matches/${currentMatchId}/players/${playerName}/alive`), false);
       }
     };
@@ -1394,7 +1438,7 @@ const updateLocalMovement = () => {
     if (!p) return;
 
     state.current.enemies.forEach(bot => {
-      if (bot.hp <= 0) return;
+      if (!bot.isBot || bot.hp <= 0) return;
 
       // Find nearest target (Player or another Bot)
       let target: { x: number, y: number, id: string, isAlive?: boolean } | null = null;
