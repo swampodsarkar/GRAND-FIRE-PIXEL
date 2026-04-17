@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Settings, Mail, Battery, Wifi, MessageSquare, Users, Crosshair, User, Beaker, Zap, Shield, Activity, Luggage, Skull, Sword, Map, Target, CloudRain, X } from 'lucide-react';
+import { Settings, Mail, Battery, Wifi, MessageSquare, Users, Crosshair, User, Beaker, Zap, Shield, Activity, Luggage, Skull, Sword, Map, Target, CloudRain, X, ShoppingCart, Package, Calendar, Trophy, Send } from 'lucide-react';
 import { ref, set, onValue, get, update } from 'firebase/database';
 import { db, auth } from './firebase';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
@@ -224,6 +224,37 @@ export default function App() {
   }, [matchmakingPlayers]);
   const [lastJoined, setLastJoined] = useState<string>('');
   const [killFeed, setKillFeed] = useState<{ id: number, killer: string, victim: string, weapon?: string }[]>([]);
+  const [globalChat, setGlobalChat] = useState<{ id: number; sender: string; text: string; time: number }[]>([]);
+  const [chatInput, setChatInput] = useState('');
+
+  useEffect(() => {
+    const chatRef = ref(db, 'globalChat');
+    const unsubscribe = onValue(chatRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.val();
+        const messages = Object.values(data)
+          .sort((a: any, b: any) => a.time - b.time)
+          .slice(-50) as { id: number; sender: string; text: string; time: number }[];
+        setGlobalChat(messages);
+      } else {
+        setGlobalChat([]);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleSendGlobalChat = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!chatInput.trim()) return;
+    const msgId = Date.now();
+    set(ref(db, `globalChat/${msgId}`), {
+      id: msgId,
+      sender: playerName || "Guest",
+      text: chatInput.trim(),
+      time: msgId
+    });
+    setChatInput("");
+  };
   
   // Joystick Refs
   const leftJoyRef = useRef({ active: false, x: 0, y: 0, originX: 0, originY: 0, dirX: 0, dirY: 0, identifier: -1 });
@@ -401,17 +432,14 @@ export default function App() {
   useEffect(() => {
     let interval: NodeJS.Timeout;
     if (screen === 'matchmaking') {
-      interval = setInterval(() => {
-        setMatchTimer(prev => {
-          if (prev <= 1) {
-            clearInterval(interval);
-            setScreen('drop_selection');
-            setDropTimer(15);
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
+      // We don't need a local timer decrement. 
+      // We will rely purely on the 'matchTimer' state mapped from Firebase, 
+      // and checking 'status === drop_selection' in the onValue listener (line ~399).
+      // However, as a failsafe, we can check if matchTimer hits 0 to explicitly go to drop selection.
+      if (matchTimer <= 0) {
+        setScreen('drop_selection');
+        setDropTimer(15);
+      }
     } else if (screen === 'drop_selection') {
       const botPool = ["Ranger", "Scout", "Sniper", "Medic", "Heavy", "Assault", "Recon", "Warrior", "Phantom", "Ghost", "Shadow", "Hunter", "Viper", "Wolf", "Hawk", "Eagle", "Falcon", "Cobra", "Dragon", "Titan"];
       
@@ -427,7 +455,7 @@ export default function App() {
       }, 1000);
     }
     return () => clearInterval(interval);
-  }, [screen, matchmakingPlayers.length]);
+  }, [screen, matchTimer]);
 
   const handleMapClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -497,7 +525,9 @@ export default function App() {
     // Generate Enemies
     const totalPlayers = 20;
     const realPlayers = matchmakingPlayersRef.current.filter(name => name !== playerName);
-    const botNames = ["Ranger", "Scout", "Sniper", "Medic", "Heavy", "Assault", "Recon", "Warrior", "Phantom", "Ghost", "Shadow", "Hunter", "Viper", "Wolf", "Hawk", "Eagle", "Falcon", "Cobra", "Dragon", "Titan"];
+    const botNames = Array.from({length: 20}, (_, i) => `Bot_${i + 1}`).concat(["Ranger", "Scout", "Sniper", "Medic", "Heavy", "Assault", "Recon", "Warrior", "Phantom", "Ghost", "Shadow", "Hunter", "Viper", "Wolf", "Hawk", "Eagle", "Falcon", "Cobra", "Dragon", "Titan"]);
+
+    
     
     const enemies: Enemy[] = [];
 
@@ -1910,16 +1940,26 @@ const updateLocalMovement = () => {
           <div className="flex-1 flex items-center justify-center relative z-10">
             {/* Left Menu - Mobile Optimized */}
             <div className="absolute left-2 top-1/2 -translate-y-1/2 flex flex-col gap-1 sm:gap-2 w-[100px] sm:w-[140px]">
-              {['STORE', 'INVENTORY', 'EVENTS', 'LEADERBOARD'].map((item, idx) => (
-                <button 
-                  key={item} 
-                  onClick={() => setActiveModal(item)}
-                  className="p-[6px_8px] sm:p-[8px_10px] bg-gradient-to-r from-black/80 to-transparent border-l-2 border-accent-gold text-white uppercase text-[8px] sm:text-[10px] font-bold tracking-[1px] text-left hover:pl-3 transition-all shadow-lg flex items-center gap-1 sm:gap-2"
-                >
-                  <div className="w-4 h-4 sm:w-5 sm:h-5 bg-white/10 rounded flex items-center justify-center text-[8px] sm:text-[9px] shrink-0">{idx + 1}</div>
-                  <span className="truncate">{item}</span>
-                </button>
-              ))}
+              {['STORE', 'INVENTORY', 'EVENTS', 'LEADERBOARD'].map((item, idx) => {
+                const navIcons: Record<string, React.ReactNode> = {
+                  'STORE': <ShoppingCart size={14} />,
+                  'INVENTORY': <Package size={14} />,
+                  'EVENTS': <Calendar size={14} />,
+                  'LEADERBOARD': <Trophy size={14} />
+                };
+                return (
+                  <button 
+                    key={item} 
+                    onClick={() => setActiveModal(item)}
+                    className="p-[6px_8px] sm:p-[8px_10px] bg-gradient-to-r from-black/80 to-transparent border-l-2 border-accent-gold text-white uppercase text-[8px] sm:text-[10px] font-bold tracking-[1px] text-left hover:pl-3 transition-all shadow-lg flex items-center gap-1 sm:gap-2"
+                  >
+                    <div className="w-5 h-5 sm:w-6 sm:h-6 bg-white/10 rounded flex items-center justify-center text-accent-gold shrink-0">
+                      {navIcons[item]}
+                    </div>
+                    <span className="truncate">{item}</span>
+                  </button>
+                );
+              })}
             </div>
 
             {/* Center Character Card - Mobile Optimized */}
@@ -1949,9 +1989,14 @@ const updateLocalMovement = () => {
             {/* Chat & Menus Row */}
             <div className="flex items-center justify-between h-[35px] sm:h-[45px]">
               {/* Chat */}
-              <div className="bg-black/60 border border-white/10 rounded p-1 sm:p-2 flex items-center gap-1 backdrop-blur-sm w-[100px] sm:w-[130px] md:w-[250px]">
+              <div 
+                onClick={() => setActiveModal('CHAT')}
+                className="bg-black/60 border border-white/10 rounded p-1 sm:p-2 flex items-center gap-1 backdrop-blur-sm w-[100px] sm:w-[130px] md:w-[250px] cursor-pointer hover:bg-white/5 transition-colors"
+               >
                 <MessageSquare size={10} className="text-white/60 sm:w-[14px] sm:h-[14px]" />
-                <span className="text-[7px] sm:text-[9px] md:text-[11px] text-white/60 truncate">World | Team Invite...</span>
+                <span className="text-[7px] sm:text-[9px] md:text-[11px] text-white/60 truncate">
+                  {globalChat.length > 0 ? `${globalChat[globalChat.length-1].sender}: ${globalChat[globalChat.length-1].text}` : 'Global Chat | Tap to open...'}
+                </span>
               </div>
 
               {/* Menus hidden */}
@@ -2186,6 +2231,39 @@ const updateLocalMovement = () => {
                         </div>
                     </div>
                   </div>
+                ) : activeModal === 'CHAT' ? (
+                  <div className="flex flex-col h-[50vh] sm:h-[60vh] -m-4 sm:-m-6 pt-4 sm:pt-6 px-4 sm:px-6 pb-2">
+                    <div className="flex-1 overflow-y-auto space-y-3 pr-2 mb-2 flex flex-col">
+                      {globalChat.map(msg => (
+                        <div key={msg.id} className={`bg-black/40 p-2 rounded-lg border border-white/5 flex flex-col gap-1 w-fit max-w-[80%] ${msg.sender === playerName ? 'self-end bg-accent-gold/20' : 'self-start'}`}>
+                           <div className="flex justify-between items-end gap-4">
+                             <span className="font-bold text-accent-gold text-[10px] sm:text-xs">{msg.sender}</span>
+                             <span className="text-white/40 text-[8px] sm:text-[10px]">{new Date(msg.time).toLocaleTimeString()}</span>
+                           </div>
+                           <span className="text-white text-xs sm:text-sm">{msg.text}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <form 
+                      className="flex gap-2 shrink-0 border-t border-white/10 pt-2"
+                      onSubmit={handleSendGlobalChat}
+                    >
+                       <input 
+                         type="text" 
+                         value={chatInput}
+                         onChange={e => setChatInput(e.target.value)}
+                         placeholder="Type a message..."
+                         className="flex-1 bg-black/60 border border-white/10 rounded-lg px-3 py-2 text-white text-xs sm:text-sm outline-none focus:border-accent-gold/50 transition-colors"
+                       />
+                       <button 
+                         type="submit"
+                         disabled={!chatInput.trim()}
+                         className="bg-accent-gold text-black p-2 rounded-lg hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                       >
+                         <Send size={16} />
+                       </button>
+                    </form>
+                  </div>
                 ) : (
                   <div className="text-center">
                     <p className="text-text-secondary text-[14px] mb-8">This feature is currently under development. Check back later for updates!</p>
@@ -2379,28 +2457,31 @@ const updateLocalMovement = () => {
                 <path d={`M 0 ${MAP_HEIGHT/2} H ${MAP_WIDTH}`} stroke="white" strokeWidth="2" opacity="0.05" />
                 
                 {/* Safe Zone on MiniMap */}
-                {state.current.matchTime >= 60 && (
-                  <circle 
-                    cx={hud.safeZone.x} 
-                    cy={hud.safeZone.y} 
-                    r={hud.safeZone.radius} 
-                    fill="transparent" 
-                    stroke="rgba(255,255,255,0.4)" 
-                    strokeWidth="15"
-                    strokeDasharray="30,30"
-                  />
-                )}
+                <circle 
+                  cx={hud.safeZone.x} 
+                  cy={hud.safeZone.y} 
+                  r={hud.safeZone.radius} 
+                  fill="rgba(0, 50, 200, 0.1)" 
+                  stroke="rgba(0, 150, 255, 0.6)" 
+                  strokeWidth="15"
+                  strokeDasharray="30,30"
+                />
                 
+                {/* Airdrops on MiniMap */}
+                {state.current.airdrops.filter(a => a.active).map((drop, i) => (
+                  <rect key={`drop-${i}`} x={drop.x - 25} y={drop.y - 25} width="50" height="50" fill="yellow" stroke="orange" strokeWidth="5" className="animate-pulse" />
+                ))}
+
                 {/* Enemies on MiniMap - Radar feel */}
                 {state.current.enemies.map(e => (
-                  e.hp > 0 && Math.hypot(e.x - hud.playerPos.x, e.y - hud.playerPos.y) < 500 && (
-                    <circle key={`radar-${e.id}`} cx={e.x} cy={e.y} r="15" fill="#ff4444" className="animate-pulse" />
+                  e.hp > 0 && Math.hypot(e.x - hud.playerPos.x, e.y - hud.playerPos.y) < 1500 && (
+                    <circle key={`radar-${e.id}`} cx={e.x} cy={e.y} r="25" fill="#ff4444" className="animate-pulse" stroke="#ff0000" strokeWidth="8" />
                   )
                 ))}
 
                 {/* Player Navigation Arrow */}
                 <g transform={`translate(${hud.playerPos.x}, ${hud.playerPos.y}) rotate(${hud.playerPos.angle * 180 / Math.PI})`}>
-                  <path d="M -20, -20 L 30, 0 L -20, 20 Z" fill="#FFD700" stroke="#000" strokeWidth="3" />
+                  <path d="M -30, -30 L 50, 0 L -30, 30 L -10, 0 Z" fill="#FFD700" stroke="#000" strokeWidth="5" />
                 </g>
               </svg>
               

@@ -45,3 +45,23 @@ body {
   overflow: hidden;
   touch-action: none; /* Prevent default touch actions for mobile game */
 }
+
+/* Custom Gaming Scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.5);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(212, 175, 55, 0.5); /* Accent gold semi-transparent */
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(212, 175, 55, 1); /* Accent gold solid */
+}
