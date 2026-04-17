@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Settings, Mail, Battery, Wifi, MessageSquare, Users, Crosshair, User, Beaker, Zap, Shield, Activity, Luggage, Skull, Sword, Map, Target, CloudRain } from 'lucide-react';
-import { ref, set, onValue, get } from 'firebase/database';
+import { ref, set, onValue, get, update } from 'firebase/database';
 import { db, auth } from './firebase';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
 
@@ -333,35 +333,70 @@ export default function App() {
   const startMatchmaking = async () => {
     setScreen('matchmaking');
     
-    // Check if anyone else is already in the queue
-    const matchRef = ref(db, 'matchmaking');
-    const snapshot = await get(matchRef);
-    if (!snapshot.exists()) {
-      setMatchTimer(30);
+    // Join shared matchmaking lobby
+    const lobbyRef = ref(db, 'matchmaking/lobby');
+    const lobbySnapshot = await get(lobbyRef);
+    
+    if (!lobbySnapshot.exists()) {
+      // First player initializes the room
+      set(lobbyRef, {
+        players: [playerName],
+        timer: 30,
+        bots: [],
+        status: 'waiting'
+      });
+    } else {
+      // Subsequent players join existing lobby
+      const data = lobbySnapshot.val();
+      update(lobbyRef, {
+        players: [...data.players, playerName]
+      });
     }
-    
-    setMatchmakingBots([]);
-    
-    // Join matchmaking queue
-    const playerMatchRef = ref(db, 'matchmaking/' + playerName);
-    set(playerMatchRef, { name: playerName, joinedAt: Date.now() });
   };
 
   // --- Matchmaking Sync ---
   useEffect(() => {
     if (screen === 'matchmaking') {
-      const allMatchRef = ref(db, 'matchmaking');
-      const unsubscribe = onValue(allMatchRef, (snapshot) => {
+      const lobbyRef = ref(db, 'matchmaking/lobby');
+      const unsubscribe = onValue(lobbyRef, (snapshot) => {
         if (snapshot.exists()) {
-          const players = Object.values(snapshot.val()) as any[];
-          setMatchmakingPlayers(players.map(p => p.name));
-        } else {
-          setMatchmakingPlayers([]);
+          const data = snapshot.val();
+          setMatchmakingPlayers(data.players || []);
+          setMatchTimer(data.timer || 30);
+          setMatchmakingBots(data.bots || []);
+          
+          if (data.status === 'drop_selection') {
+            setScreen('drop_selection');
+          }
         }
       });
       return () => unsubscribe();
     }
   }, [screen, db]);
+
+  // Master timer logic (leader handles updates)
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (screen === 'matchmaking') {
+      interval = setInterval(() => {
+        const lobbyRef = ref(db, 'matchmaking/lobby');
+        // Only run timer update if player is the first in queue (leader)
+        if (matchmakingPlayers[0] === playerName) {
+           get(lobbyRef).then((snapshot) => {
+             if (snapshot.exists()) {
+               const data = snapshot.val();
+               if (data.timer > 0) {
+                 update(lobbyRef, { timer: Math.max(0, data.timer - 1) });
+               } else if (data.status !== 'drop_selection') {
+                 update(lobbyRef, { status: 'drop_selection' });
+               }
+             }
+           });
+        }
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [screen, matchmakingPlayers, playerName]);
 
   useEffect(() => {
     let interval: NodeJS.Timeout;
