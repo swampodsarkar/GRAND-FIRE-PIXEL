@@ -179,7 +179,12 @@ export default function App() {
   const [dropTimer, setDropTimer] = useState(10);
   const [activeModal, setActiveModal] = useState<string | null>(null);
   const [matchmakingPlayers, setMatchmakingPlayers] = useState<string[]>([]);
+  const matchmakingPlayersRef = useRef<string[]>([]);
   const [matchmakingBots, setMatchmakingBots] = useState<string[]>([]);
+
+  useEffect(() => {
+    matchmakingPlayersRef.current = matchmakingPlayers;
+  }, [matchmakingPlayers]);
   const [lastJoined, setLastJoined] = useState<string>('');
   const [killFeed, setKillFeed] = useState<{ id: number, killer: string, victim: string, weapon?: string }[]>([]);
   
@@ -296,18 +301,23 @@ export default function App() {
     // Join matchmaking queue
     const matchRef = ref(db, 'matchmaking/' + playerName);
     set(matchRef, { name: playerName, joinedAt: Date.now() });
-
-    // Listen for other players
-    const allMatchRef = ref(db, 'matchmaking');
-    onValue(allMatchRef, (snapshot) => {
-      if (snapshot.exists()) {
-        const players = Object.values(snapshot.val()) as any[];
-        setMatchmakingPlayers(players.map(p => p.name));
-      } else {
-        setMatchmakingPlayers([]);
-      }
-    });
   };
+
+  // --- Matchmaking Sync ---
+  useEffect(() => {
+    if (screen === 'matchmaking') {
+      const allMatchRef = ref(db, 'matchmaking');
+      const unsubscribe = onValue(allMatchRef, (snapshot) => {
+        if (snapshot.exists()) {
+          const players = Object.values(snapshot.val()) as any[];
+          setMatchmakingPlayers(players.map(p => p.name));
+        } else {
+          setMatchmakingPlayers([]);
+        }
+      });
+      return () => unsubscribe();
+    }
+  }, [screen, db]);
 
   useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -439,7 +449,7 @@ export default function App() {
 
     // Generate Enemies
     const totalPlayers = 20;
-    const realPlayers = matchmakingPlayers.filter(name => name !== playerName);
+    const realPlayers = matchmakingPlayersRef.current.filter(name => name !== playerName);
     const botNames = ["Ranger", "Scout", "Sniper", "Medic", "Heavy", "Assault", "Recon", "Warrior", "Phantom", "Ghost", "Shadow", "Hunter", "Viper", "Wolf", "Hawk", "Eagle", "Falcon", "Cobra", "Dragon", "Titan"];
     
     const enemies: Enemy[] = [];
