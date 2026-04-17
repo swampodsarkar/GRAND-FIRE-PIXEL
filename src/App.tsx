@@ -444,6 +444,7 @@ export default function App() {
     }
 
     setScreen('lobby');
+    setCurrentMatchId(null);
   };
 
   useEffect(() => {
@@ -482,16 +483,15 @@ export default function App() {
   }, [screen]);
 
   const startMatchmaking = async () => {
-    setScreen('matchmaking');
-    
     // Join shared matchmaking lobby
     const lobbyRef = ref(db, 'matchmaking/lobby');
     const lobbySnapshot = await get(lobbyRef);
+    const data = lobbySnapshot.val();
     
-    if (!lobbySnapshot.exists()) {
-      // First player initializes the room
+    if (!lobbySnapshot.exists() || (data && data.status === 'drop_selection')) {
+      // First player initializes the room, or resets a stale one
       const mId = 'match_' + Date.now();
-      set(lobbyRef, {
+      await set(lobbyRef, {
         players: [playerName],
         timer: 30,
         bots: [],
@@ -501,12 +501,13 @@ export default function App() {
       setCurrentMatchId(mId);
     } else {
       // Subsequent players join existing lobby
-      const data = lobbySnapshot.val();
       setCurrentMatchId(data.matchId || 'match_' + Date.now());
-      update(lobbyRef, {
-        players: [...data.players, playerName]
+      await update(lobbyRef, {
+        players: [...(data.players || []), playerName]
       });
     }
+    
+    setScreen('matchmaking');
   };
 
   // --- Matchmaking Sync ---
@@ -3262,7 +3263,7 @@ const updateLocalMovement = () => {
                 </div>
 
                 <button 
-                  onClick={() => setScreen('lobby')}
+                  onClick={() => goToLobby()}
                   className="w-full mt-8 p-3 bg-accent-gold text-black font-black uppercase rounded-lg hover:brightness-110"
                 >
                   Return to Lobby
