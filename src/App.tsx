@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Settings, Mail, Battery, Wifi, MessageSquare, Users, Crosshair, User, Beaker, Zap, Shield, Activity, Luggage, Skull, Sword, Map, Target, CloudRain, X, ShoppingCart, Package, Calendar, Trophy, Send, Lock } from 'lucide-react';
-import { ref, set, onValue, get, update } from 'firebase/database';
+import { ref, set, onValue, get, update, push } from 'firebase/database';
 import { db, auth } from './firebase';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged } from 'firebase/auth';
 
@@ -161,6 +161,7 @@ interface Player {
   ammo: number;
   speedBuff?: number;
   shield?: number;
+  processedDamage?: Set<string>;
 }
 
 interface Enemy {
@@ -177,6 +178,10 @@ interface Enemy {
   moveDir: { x: number; y: number };
   isBot: boolean;
   dressColor: string;
+  // Network interpolation
+  targetX?: number;
+  targetY?: number;
+  targetAngle?: number;
 }
 
 interface Bullet {
@@ -281,6 +286,10 @@ export default function App() {
   const [killFeed, setKillFeed] = useState<{ id: number, killer: string, victim: string, weapon?: string }[]>([]);
   const [globalChat, setGlobalChat] = useState<{ id: number; sender: string; text: string; time: number }[]>([]);
   const [chatInput, setChatInput] = useState('');
+  const [hitMarker, setHitMarker] = useState(0); // Timestamp of last hit
+  const [damageIndicators, setDamageIndicators] = useState<{angle: number, time: number}[]>([]); // Tracking incoming shots
+  const [lastHPPulse, setLastHPPulse] = useState(0);
+  const [screenShake, setScreenShake] = useState(0); // Shake intensity
 
   useEffect(() => {
     const chatRef = ref(db, 'globalChat');
@@ -455,6 +464,23 @@ export default function App() {
     return () => unsub();
   }, [screen]);
 
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (screen === 'game') {
+      interval = setInterval(() => {
+        const now = Date.now();
+        setDamageIndicators(prev => prev.filter(di => now - di.time < 1500));
+        setScreenShake(prev => Math.max(0, prev * 0.7)); // Decay shake faster
+        
+        const p = state.current.localPlayer;
+        if (p && p.hp < 50 && p.isAlive) {
+          setLastHPPulse(now);
+        }
+      }, 500);
+    }
+    return () => clearInterval(interval);
+  }, [screen]);
+
   const startMatchmaking = async () => {
     setScreen('matchmaking');
     
@@ -604,11 +630,13 @@ export default function App() {
     let interval: NodeJS.Timeout;
     let syncInterval: NodeJS.Timeout;
     let unsubscribe: () => void;
+    let damageUnsub: () => void;
 
     if (screen === 'game' && currentMatchId) {
       const roomRef = ref(db, `matches/${currentMatchId}`);
       const playersRef = ref(db, `matches/${currentMatchId}/players`);
       const myPresenceRef = ref(db, `matches/${currentMatchId}/players/${playerName}`);
+      const myDamageRef = ref(db, `matches/${currentMatchId}/damage/${playerName}`);
       
       const updatePresence = (alive: boolean) => {
         const p = state.current.localPlayer;
@@ -635,16 +663,54 @@ export default function App() {
           state.current.enemies.forEach(enemy => {
             if (!enemy.isBot && remotePlayers[enemy.name]) {
               const remote = remotePlayers[enemy.name];
-              // Smoothen movement a bit (interpolation could be added later, currently direct sync)
-              enemy.x = remote.x ?? enemy.x;
-              enemy.y = remote.y ?? enemy.y;
-              enemy.angle = remote.angle ?? enemy.angle;
+              // Use target interpolation for smoother movement
+              enemy.targetX = remote.x ?? enemy.x;
+              enemy.targetY = remote.y ?? enemy.y;
+              enemy.targetAngle = remote.angle ?? enemy.angle;
+              
               enemy.hp = remote.hp ?? enemy.hp;
               enemy.kills = remote.kills ?? enemy.kills;
               enemy.weapon = remote.weapon ?? enemy.weapon;
             }
           });
         }
+      });
+
+      // 1.5 Listen for damage against me
+      damageUnsub = onValue(myDamageRef, (snapshot) => {
+         if (snapshot.exists()) {
+            const damageEvents = snapshot.val();
+            const p = state.current.localPlayer;
+            if (p && p.isAlive) {
+               Object.keys(damageEvents).forEach(key => {
+                  const ev = damageEvents[key];
+                  // Avoid processing old events (simple timestamp check or just immediate)
+                  if (!p.processedDamage) p.processedDamage = new Set();
+                  if (!p.processedDamage.has(key)) {
+                     p.processedDamage.add(key);
+                     
+                     let damage = ev.amount;
+                     if (p.armor > 0) {
+                        let armorBlock = Math.min(p.armor, damage * 0.4);
+                        p.armor -= armorBlock;
+                        damage -= armorBlock;
+                     }
+                     p.hp = Math.max(0, p.hp - damage);
+                     
+                     // Visual indicator
+                     setDamageIndicators(prev => [...prev, { angle: ev.angle || 0, time: Date.now() }].slice(-5));
+                     setScreenShake(prev => Math.min(10, prev + 5));
+
+                     if (p.hp <= 0) {
+                        p.isAlive = false;
+                        handlePlayerDeath();
+                     }
+                  }
+               });
+            }
+            // Clear processed events from DB to keep it light
+            set(myDamageRef, null);
+         }
       });
 
       // 2. High-freq State Update (Throttled 100ms)
@@ -704,6 +770,7 @@ export default function App() {
       if (interval) clearInterval(interval);
       if (syncInterval) clearInterval(syncInterval);
       if (unsubscribe) unsubscribe();
+      if (damageUnsub) damageUnsub();
       if (screen === 'game' && currentMatchId) {
          set(ref(db, `matches/${currentMatchId}/players/${playerName}/alive`), false);
       }
@@ -1432,6 +1499,27 @@ const updateLocalMovement = () => {
     }
   };
 
+  const updateRemotePlayers = () => {
+    state.current.enemies.forEach(enemy => {
+      if (!enemy.isBot && enemy.hp > 0) {
+        if (enemy.targetX !== undefined && enemy.targetY !== undefined) {
+          // Linear Interpolation (Lerp) for smooth movement
+          // Adjusted for 100ms sync - 0.1 to 0.2 factor is common
+          enemy.x += (enemy.targetX - enemy.x) * 0.15;
+          enemy.y += (enemy.targetY - enemy.y) * 0.15;
+          
+          if (enemy.targetAngle !== undefined) {
+            // Find minimal angle difference
+            let diff = enemy.targetAngle - enemy.angle;
+            while (diff < -Math.PI) diff += Math.PI * 2;
+            while (diff > Math.PI) diff -= Math.PI * 2;
+            enemy.angle += diff * 0.2;
+          }
+        }
+      }
+    });
+  };
+
   const updateBotAI = () => {
     const now = Date.now();
     const p = state.current.localPlayer;
@@ -1584,6 +1672,22 @@ const updateLocalMovement = () => {
           state.current.bullets.splice(i, 1);
           i--;
           hit = true;
+          
+          if (b.ownerId === "player") {
+            setHitMarker(Date.now());
+            
+            // Hit Registration: If we hit a real player on OUR screen, notify them
+            if (!enemy.isBot && currentMatchId) {
+               const victimDamageRef = ref(db, `matches/${currentMatchId}/damage/${enemy.name}`);
+               push(victimDamageRef, {
+                  amount: damage,
+                  attacker: playerName,
+                  angle: Math.atan2(b.dy, b.dx) + Math.PI, // Direction for victim's indicator
+                  timestamp: Date.now()
+               });
+            }
+          }
+
           if (enemy.hp <= 0) {
             // Credit local player if they were the owner
             if (b.ownerId === "player") {
@@ -1615,6 +1719,14 @@ const updateLocalMovement = () => {
           damage -= armorBlock;
         }
         p.hp = Math.max(0, p.hp - damage);
+        setScreenShake(prev => Math.min(10, prev + 5)); // Add shake intensity
+        
+        // Damage Indicator: calculate angle from bullet source
+        const dx = b.x - (b.dx * 10) - p.x; // approximate origin
+        const dy = b.y - (b.dy * 10) - p.y;
+        const angle = Math.atan2(dy, dx);
+        setDamageIndicators(prev => [...prev, { angle, time: Date.now() }].slice(-5));
+
         state.current.bullets.splice(i, 1);
         i--;
         if (p.hp <= 0) {
@@ -1933,6 +2045,7 @@ const updateLocalMovement = () => {
     
     updateJoysticks();
     updateLocalMovement();
+    updateRemotePlayers();
     updateBotAI();
     updateBullets();
     updateLootPickup();
@@ -2806,7 +2919,14 @@ const updateLocalMovement = () => {
       </AnimatePresence>
 
       {screen === 'game' && (
-        <div className="fixed inset-0 bg-black z-[300] touch-none overflow-hidden">
+        <motion.div 
+          animate={screenShake > 0.1 ? {
+            x: [0, (Math.random()-0.5) * screenShake, 0],
+            y: [0, (Math.random()-0.5) * screenShake, 0]
+          } : {}}
+          transition={{ duration: 0.1, repeat: 1 }}
+          className="fixed inset-0 bg-black z-[300] touch-none overflow-hidden"
+        >
           <canvas
             ref={canvasRef}
             className="block w-full h-full"
@@ -2955,6 +3075,54 @@ const updateLocalMovement = () => {
 
           {/* HUD Overlay */}
           <div className="absolute inset-0 pointer-events-none z-[350]">
+            
+            {/* Low HP Warning Pulse */}
+            <AnimatePresence>
+              {hud.hp < 50 && hud.hp > 0 && (
+                <motion.div 
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: [0.1, 0.4, 0.1] }}
+                  transition={{ duration: 1, repeat: Infinity }}
+                  className="absolute inset-0 border-[15px] sm:border-[30px] border-red-600/30 pointer-events-none shadow-[inset_0_0_100px_rgba(220,38,38,0.4)]"
+                />
+              )}
+            </AnimatePresence>
+
+            {/* Hit Marker (X) */}
+            <AnimatePresence>
+              {Date.now() - hitMarker < 150 && (
+                <motion.div 
+                  initial={{ scale: 0.5, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none"
+                >
+                  <div className="relative w-6 h-6 sm:w-8 sm:h-8">
+                    <div className="absolute top-1/2 left-1/2 w-full h-[2px] bg-white rounded-full -translate-x-1/2 -translate-y-1/2 rotate-45 shadow-[0_0_5px_white]"></div>
+                    <div className="absolute top-1/2 left-1/2 w-full h-[2px] bg-white rounded-full -translate-x-1/2 -translate-y-1/2 -rotate-45 shadow-[0_0_5px_white]"></div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Directional Damage Indicators */}
+            {damageIndicators.map((di, idx) => (
+              <motion.div
+                key={`${di.time}-${idx}`}
+                initial={{ opacity: 0.8, scale: 0.8 }}
+                animate={{ opacity: 0 }}
+                transition={{ duration: 1.5 }}
+                className="absolute top-1/2 left-1/2 pointer-events-none"
+                style={{ 
+                   transform: `translate(-50%, -50%) rotate(${di.angle}rad)`,
+                }}
+              >
+                <div className="w-[150px] h-[150px] sm:w-[250px] sm:h-[250px] border-t-4 border-red-600 rounded-full opacity-60 blur-[1px]" 
+                     style={{ clipPath: 'polygon(50% 50%, 0 0, 100% 0)' }}>
+                </div>
+              </motion.div>
+            ))}
+
             {/* HUD Top Left: Mini Map Placeholder */}
             <div className="absolute top-2 left-2 w-[100px] h-[100px] sm:w-[130px] sm:h-[130px] bg-black/40 border-2 border-white/20 rounded shadow-lg overflow-hidden flex items-center justify-center">
                <div className="absolute inset-0 opacity-40 bg-[url('https://picsum.photos/seed/map/200/200')] bg-cover"></div>
@@ -3183,7 +3351,7 @@ const updateLocalMovement = () => {
               </div>
             )}
           </div>
-        </div>
+        </motion.div>
       )}
     </div>
   );
