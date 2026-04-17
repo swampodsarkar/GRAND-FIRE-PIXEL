@@ -123,6 +123,8 @@ interface Enemy {
   weapon: string;
   lastShoot: number;
   moveDir: { x: number; y: number };
+  isBot: boolean;
+  dressColor: string;
 }
 
 interface Bullet {
@@ -454,7 +456,8 @@ export default function App() {
     
     const enemies: Enemy[] = [];
 
-    // Add real players as "enemies" (simulated for now)
+    // Add real players as "enemies"
+    const REAL_PLAYER_COLOR = '#FF5733'; // Consistent color for real players
     realPlayers.forEach((name, i) => {
       enemies.push({
         id: `player_${i}`,
@@ -467,16 +470,22 @@ export default function App() {
         kills: 0,
         weapon: Object.keys(WEAPONS)[Math.floor(Math.random() * 5)],
         lastShoot: 0,
-        moveDir: { x: 0, y: 0 }
+        moveDir: { x: 0, y: 0 },
+        isBot: false,
+        dressColor: REAL_PLAYER_COLOR
       });
     });
 
     // Fill the rest with bots
+    const getRandomColor = () => {
+        const colors = ['#33FF57', '#3357FF', '#FF33A1', '#A133FF', '#33FFF5', '#FF8C33', '#8CFF33'];
+        return colors[Math.floor(Math.random() * colors.length)];
+    };
     const botsNeeded = Math.max(0, totalPlayers - realPlayers.length - 1); // -1 for local player
     for (let i = 0; i < botsNeeded; i++) {
       enemies.push({
         id: `bot_${i}`,
-        name: botNames[i % botNames.length] + " (Bot)",
+        name: botNames[i % botNames.length],
         x: Math.random() * MAP_WIDTH,
         y: Math.random() * MAP_HEIGHT,
         hp: 200,
@@ -485,7 +494,9 @@ export default function App() {
         kills: 0,
         weapon: Object.keys(WEAPONS)[Math.floor(Math.random() * 5)],
         lastShoot: 0,
-        moveDir: { x: 0, y: 0 }
+        moveDir: { x: 0, y: 0 },
+        isBot: true,
+        dressColor: getRandomColor()
       });
     }
 
@@ -1407,14 +1418,15 @@ export default function App() {
     // Enemies
     state.current.enemies.forEach(enemy => {
       const pos = worldToScreen(enemy.x, enemy.y);
-      drawHuman(ctx, pos.x, pos.y, enemy.angle, '#99958F', enemy.name, enemy.hp, false);
+      const displayName = enemy.isBot ? `${enemy.name} (Bot)` : enemy.name;
+      drawHuman(ctx, pos.x, pos.y, enemy.angle, enemy.dressColor, displayName, enemy.hp, false);
     });
 
     // Player
     const p = state.current.localPlayer;
     if (p && p.isAlive) {
       const pos = worldToScreen(p.x, p.y);
-      drawHuman(ctx, pos.x, pos.y, p.angle, '#D4AF37', p.name, p.hp, true);
+      drawHuman(ctx, pos.x, pos.y, p.angle, '#FF5733', p.name, p.hp, true);
       
       if (p.shield) {
         ctx.strokeStyle = 'rgba(224, 222, 215, 0.5)';
