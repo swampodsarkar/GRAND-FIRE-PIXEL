@@ -822,6 +822,7 @@ export default function App() {
 
     // Initialize Player
     state.current.localPlayer = {
+      processedDamage: new Set(),
       id: "player",
       name: playerName,
       x: dropPoint.x,
@@ -1700,6 +1701,22 @@ const updateLocalMovement = () => {
             const killerName = b.ownerId === "player" ? p.name : (state.current.enemies.find(e => e.id === b.ownerId)?.name || "Enemy");
             const newKill = { id: Date.now() + Math.random(), killer: killerName, victim: enemy.name, weapon: b.type };
             setKillFeed(prev => [newKill, ...prev].slice(0, 5));
+
+            // Drop Loot on Death
+            state.current.lootItems.push({
+              x: enemy.x,
+              y: enemy.y,
+              type: enemy.weapon,
+              itemType: "weapon"
+            });
+            if (Math.random() > 0.5) {
+              state.current.lootItems.push({
+                x: enemy.x + 20,
+                y: enemy.y + 20,
+                type: Math.random() > 0.5 ? "medkit" : "armor",
+                itemType: "consumable"
+              });
+            }
           }
           break;
         }
@@ -1733,6 +1750,14 @@ const updateLocalMovement = () => {
         if (p.hp <= 0) {
           p.isAlive = false;
           
+          // Drop loot for local player too
+          state.current.lootItems.push({
+            x: p.x,
+            y: p.y,
+            type: p.weapon,
+            itemType: "weapon"
+          });
+
           // Add to kill feed
           const killer = state.current.enemies.find(e => e.id === b.ownerId);
           const newKill = { id: Date.now() + Math.random(), killer: killer ? killer.name : "Enemy", victim: p.name, weapon: b.type };
