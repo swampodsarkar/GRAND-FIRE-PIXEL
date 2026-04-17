@@ -401,8 +401,9 @@ export default function App() {
       setRespawnUsed(true);
       setScreen('drop_selection');
       setDropTimer(20);
-      addMessage("⚠️ YOU DIED! Respawning in 20s...");
+      addMessage("⚠️ YOU DIED! Free revival used. Respawning in 20s...");
     } else {
+      addMessage("💀 No more revivals left!");
       triggerGameOver();
     }
   };
