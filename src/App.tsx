@@ -552,7 +552,10 @@ export default function App() {
         }
 
         const zone = state.current.safeZone;
-        const damage = state.current.zoneDamage;
+        // Determine damage multiplier based on zone stage (simplified as zoneDamage)
+        // Stage 1: ~1-3 damage, Stage 2: ~4-6 damage, Stage 3+: 7-10+ damage
+        const stage = Math.min(3, Math.max(1, Math.floor(state.current.zoneDamage / 2)));
+        const damage = state.current.zoneDamage * (stage === 1 ? 2 : stage === 2 ? 5 : 10);
 
         // Player Zone Damage
         const p = state.current.localPlayer;
